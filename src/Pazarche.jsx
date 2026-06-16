@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Search, MapPin, Heart, Plus, ChevronLeft, Phone, Mail,
-  Tag, Clock, Filter, Trash2, Check, LogOut, User
+  Tag, Clock, Filter, Trash2, Check, LogOut, User, ImagePlus, X
 } from "lucide-react";
 import { supabase } from "./supabase";
 
@@ -116,7 +116,7 @@ export default function Pazarche() {
 
   useEffect(() => { loadListings(); }, [loadListings]);
 
-  const addListing = useCallback(async (form) => {
+  const addListing = useCallback(async (form, photoUrls) => {
     if (!session) { setAuthView("login"); return { error: "Трябва да влезеш в профила си." }; }
     const row = {
       user_id: session.user.id,
@@ -130,6 +130,7 @@ export default function Pazarche() {
       email: form.email || session.user.email,
       seller_name: form.seller_name,
       photo: form.photo,
+      photos: photoUrls || [],
     };
     const { data, error } = await supabase.from("listings").insert(row).select().single();
     if (error) return { error: error.message };
@@ -275,7 +276,7 @@ export default function Pazarche() {
         {authView ? (
           <Auth view={authView} setView={setAuthView} onDone={() => setAuthView(null)} />
         ) : posting ? (
-          <PostForm onSubmit={addListing} onCancel={() => setPosting(false)} defaultName={session?.user?.email?.split("@")[0] || ""} defaultEmail={session?.user?.email || ""} />
+          <PostForm onSubmit={addListing} onCancel={() => setPosting(false)} defaultName={session?.user?.email?.split("@")[0] || ""} defaultEmail={session?.user?.email || ""} userId={session?.user?.id} />
         ) : detail ? (
           <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
         ) : (
@@ -451,13 +452,23 @@ function translateAuthError(m) {
 
 /* ---------------- CARD ---------------- */
 function Card({ item, fav, onFav, onOpen }) {
+  const cover = item.photos && item.photos.length > 0 ? item.photos[0] : null;
   const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
   return (
     <article className="pz-card" onClick={onOpen}
       style={{ background: "#fff", borderRadius: 16, overflow: "hidden", cursor: "pointer", border: "1px solid #e6dcc9" }}>
-      <div style={{ height: 160, background: bg, position: "relative", display: "grid", placeItems: "center" }}>
-        <span style={{ fontSize: 46, opacity: 0.9 }}>{catObj?.icon}</span>
+      <div style={{ height: 160, background: cover ? "#eee" : bg, position: "relative", display: "grid", placeItems: "center" }}>
+        {cover ? (
+          <img src={cover} alt={item.title} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : (
+          <span style={{ fontSize: 46, opacity: 0.9 }}>{catObj?.icon}</span>
+        )}
+        {item.photos && item.photos.length > 1 && (
+          <span style={{ position: "absolute", bottom: 10, left: 10, background: "rgba(22,19,15,.78)", color: "#F4EBDD", fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: 999 }}>
+            📷 {item.photos.length}
+          </span>
+        )}
         <button onClick={(e) => { e.stopPropagation(); onFav(); }} aria-label="Запази в любими"
           style={{ position: "absolute", top: 10, right: 10, width: 36, height: 36, borderRadius: 999, border: "none", background: "rgba(255,255,255,.92)", display: "grid", placeItems: "center", cursor: "pointer" }}>
           <Heart size={18} fill={fav ? "#C9762B" : "none"} color={fav ? "#C9762B" : "#16130F"} />
@@ -479,6 +490,9 @@ function Card({ item, fav, onFav, onOpen }) {
 function Detail({ item, onBack, isFav, onFav, onRemove, isMobile, isOwner }) {
   const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
+  const photos = item.photos || [];
+  const [active, setActive] = useState(0);
+  const hasPhotos = photos.length > 0;
   return (
     <div style={{ padding: "20px 0 0" }}>
       <button onClick={onBack} className="pz-btn"
@@ -487,10 +501,29 @@ function Detail({ item, onBack, isFav, onFav, onRemove, isMobile, isOwner }) {
       </button>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0,1.5fr) minmax(0,1fr)", gap: 24, alignItems: "start" }}>
         <div>
-          <div style={{ height: isMobile ? 240 : 360, background: bg, borderRadius: 18, display: "grid", placeItems: "center", position: "relative" }}>
-            <span style={{ fontSize: isMobile ? 72 : 96, opacity: 0.92 }}>{catObj?.icon}</span>
-            <span style={{ position: "absolute", top: 14, left: 14, background: "rgba(244,235,221,.95)", padding: "5px 12px", borderRadius: 999, fontWeight: 700, fontSize: 13 }}>{catObj?.label}</span>
-          </div>
+          {hasPhotos ? (
+            <div>
+              <div style={{ height: isMobile ? 280 : 420, background: "#eee", borderRadius: 18, overflow: "hidden", position: "relative" }}>
+                <img src={photos[active]} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <span style={{ position: "absolute", top: 14, left: 14, background: "rgba(244,235,221,.95)", padding: "5px 12px", borderRadius: 999, fontWeight: 700, fontSize: 13 }}>{catObj?.label}</span>
+              </div>
+              {photos.length > 1 && (
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  {photos.map((p, i) => (
+                    <button key={i} onClick={() => setActive(i)} aria-label={`Снимка ${i + 1}`}
+                      style={{ width: 72, height: 72, borderRadius: 10, overflow: "hidden", border: i === active ? "3px solid #C9762B" : "2px solid #e6dcc9", padding: 0, cursor: "pointer", background: "#eee" }}>
+                      <img src={p} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ height: isMobile ? 240 : 360, background: bg, borderRadius: 18, display: "grid", placeItems: "center", position: "relative" }}>
+              <span style={{ fontSize: isMobile ? 72 : 96, opacity: 0.92 }}>{catObj?.icon}</span>
+              <span style={{ position: "absolute", top: 14, left: 14, background: "rgba(244,235,221,.95)", padding: "5px 12px", borderRadius: 999, fontWeight: 700, fontSize: 13 }}>{catObj?.label}</span>
+            </div>
+          )}
           <div style={{ background: "#fff", borderRadius: 16, padding: 22, marginTop: 16, border: "1px solid #e6dcc9" }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 800 }}>Описание</h3>
             <p style={{ margin: 0, lineHeight: 1.65, color: "#3a342b", whiteSpace: "pre-wrap" }}>{item.descr}</p>
@@ -535,13 +568,44 @@ function Detail({ item, onBack, isFav, onFav, onRemove, isMobile, isOwner }) {
 }
 
 /* ---------------- POST FORM ---------------- */
-function PostForm({ onSubmit, onCancel, defaultName, defaultEmail }) {
+function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId }) {
   const [f, setF] = useState({ title: "", cat: "tehnika", price: "", city: "София", cond: "Употребявано", descr: "", seller_name: defaultName, phone: "", email: defaultEmail, photo: "#E8A33D" });
+  const [photos, setPhotos] = useState([]); // { file, preview }
   const [err, setErr] = useState({});
   const [serverErr, setServerErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
-  const SWATCHES = ["#E8A33D", "#C9762B", "#3C6E47", "#16130F", "#7a5cc4", "#3a7bd5"];
+  const MAX_PHOTOS = 8;
+
+  const onPick = (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ""; // allow re-picking same file
+    const room = MAX_PHOTOS - photos.length;
+    const toAdd = files.slice(0, room).map((file) => ({ file, preview: URL.createObjectURL(file) }));
+    setPhotos((prev) => [...prev, ...toAdd]);
+  };
+  const removePhoto = (i) => {
+    setPhotos((prev) => {
+      URL.revokeObjectURL(prev[i].preview);
+      return prev.filter((_, idx) => idx !== i);
+    });
+  };
+
+  const uploadAll = async () => {
+    const urls = [];
+    for (let i = 0; i < photos.length; i++) {
+      setProgress(`Качване на снимка ${i + 1} от ${photos.length}…`);
+      const { file } = photos[i];
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const path = `${userId}/${Date.now()}-${i}.${ext}`;
+      const { error } = await supabase.storage.from("listing-photos").upload(path, file, { cacheControl: "3600", upsert: false });
+      if (error) throw error;
+      const { data } = supabase.storage.from("listing-photos").getPublicUrl(path);
+      urls.push(data.publicUrl);
+    }
+    return urls;
+  };
 
   const submit = async () => {
     const e = {};
@@ -552,9 +616,16 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail }) {
     setErr(e);
     if (Object.keys(e).length) return;
     setBusy(true); setServerErr(null);
-    const res = await onSubmit(f);
-    setBusy(false);
-    if (res?.error) setServerErr(res.error);
+    try {
+      let urls = [];
+      if (photos.length > 0) urls = await uploadAll();
+      setProgress("Публикуване…");
+      const res = await onSubmit(f, urls);
+      if (res?.error) setServerErr(res.error);
+    } catch (ex) {
+      setServerErr("Проблем при качване на снимките. Опитай пак.");
+    }
+    setBusy(false); setProgress("");
   };
 
   return (
@@ -595,15 +666,31 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail }) {
           </Field>
         </div>
 
-        <Field label="Снимка (избери цвят-плочка)">
-          <div style={{ display: "flex", gap: 10 }}>
-            {SWATCHES.map((s) => (
-              <button key={s} onClick={() => set("photo", s)} aria-label="Избор на плочка"
-                style={{ width: 42, height: 42, borderRadius: 10, background: s, border: f.photo === s ? "3px solid #16130F" : "2px solid #e6dcc9", cursor: "pointer", display: "grid", placeItems: "center" }}>
-                {f.photo === s && <Check size={18} color="#fff" />}
-              </button>
+        <Field label={`Снимки (до ${MAX_PHOTOS}) — първата е корица`}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {photos.map((p, i) => (
+              <div key={i} style={{ position: "relative", width: 84, height: 84 }}>
+                <img src={p.preview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10, border: i === 0 ? "3px solid #C9762B" : "2px solid #e6dcc9" }} />
+                {i === 0 && <span style={{ position: "absolute", bottom: 3, left: 3, background: "rgba(201,118,43,.95)", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 5 }}>корица</span>}
+                <button onClick={() => removePhoto(i)} aria-label="Премахни"
+                  style={{ position: "absolute", top: -7, right: -7, width: 24, height: 24, borderRadius: 999, background: "#16130F", color: "#fff", border: "2px solid #fff", display: "grid", placeItems: "center", cursor: "pointer", padding: 0 }}>
+                  <X size={13} />
+                </button>
+              </div>
             ))}
+            {photos.length < MAX_PHOTOS && (
+              <label style={{ width: 84, height: 84, borderRadius: 10, border: "2px dashed #c9bda8", display: "grid", placeItems: "center", cursor: "pointer", color: "#9c8f7d", background: "#F4EBDD" }}>
+                <input type="file" accept="image/*" multiple onChange={onPick} style={{ display: "none" }} />
+                <span style={{ display: "grid", placeItems: "center", gap: 3, textAlign: "center" }}>
+                  <ImagePlus size={22} />
+                  <span style={{ fontSize: 11, fontWeight: 700 }}>Добави</span>
+                </span>
+              </label>
+            )}
           </div>
+          <span style={{ fontSize: 12.5, color: "#9c8f7d", marginTop: 8, display: "block" }}>
+            Снимките не са задължителни, но обявите със снимки получават много повече интерес. До 5 MB на снимка.
+          </span>
         </Field>
 
         <Field label="Описание *">
@@ -631,7 +718,7 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail }) {
 
         <button onClick={submit} disabled={busy} className="pz-btn"
           style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 12, padding: "15px", fontWeight: 800, fontSize: 16, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          <Check size={20} /> {busy ? "Публикуване…" : "Публикувай обявата"}
+          <Check size={20} /> {busy ? (progress || "Публикуване…") : "Публикувай обявата"}
         </button>
       </div>
     </div>
