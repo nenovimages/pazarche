@@ -345,7 +345,7 @@ export default function Pazarche() {
                 </button>
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(248px, 1fr))", gap: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(auto-fill, minmax(248px, 1fr))", gap: isMobile ? 10 : 16 }}>
                 {filtered.map((l) => (
                   <Card key={l.id} item={l} fav={favs.includes(l.id)} onFav={() => toggleFav(l.id)} onOpen={() => setDetail(l)} />
                 ))}
