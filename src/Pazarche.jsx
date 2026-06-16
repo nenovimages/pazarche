@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Search, MapPin, Heart, Plus, ChevronLeft, Phone, Mail,
-  Tag, Clock, Filter, Trash2, Check
+  Tag, Clock, Filter, Trash2, Check, LogOut, User
 } from "lucide-react";
+import { supabase } from "./supabase";
 
 /* ============================================================
-   ПАЗАРЧЕ — безплатни обяви
+   ПАЗАРЧЕ — безплатни обяви (със Supabase: акаунти + обща база)
    Палитра: мастило #16130F, амбър #E8A33D, кайсия #F4EBDD,
             горчица #C9762B, зелено #3C6E47
-   Шрифтове: display = "Bricolage Grotesque"-усещане чрез тежки
-            sans тегла; body = system sans
    ============================================================ */
 
 const CATEGORIES = [
@@ -33,18 +32,11 @@ const CITIES = [
 
 const COND = ["Ново", "Като ново", "Употребявано", "За части"];
 
-const SAMPLE = [
-  { id: "s1", title: "Тристаен апартамент, кв. Лозенец", cat: "imoti", price: 189000, city: "София", cond: "Като ново", desc: "Светъл тристаен апартамент с южно изложение, 92 кв.м, обзаведен, гараж. Близо до градинка и метро.", phone: "0888 123 456", email: "ivan@example.bg", name: "Иван П.", photos: ["#C9762B"], created: Date.now() - 3600e3 * 5 },
-  { id: "s2", title: "VW Golf 7, 2017, дизел", cat: "avto", price: 18900, city: "Пловдив", cond: "Употребявано", desc: "Голф 7, 1.6 TDI, 110 к.с., обслужван в сервиз, нови гуми, без забележки. Реални километри.", phone: "0899 555 777", email: "auto@example.bg", name: "Георги М.", photos: ["#3C6E47"], created: Date.now() - 3600e3 * 26 },
-  { id: "s3", title: "iPhone 14 Pro, 256GB", cat: "tehnika", price: 1450, city: "Варна", cond: "Като ново", desc: "Тъмно лилав, батерия 96%, с кутия и зарядно. Гаранция още 4 месеца.", phone: "0877 333 222", email: "tech@example.bg", name: "Мария К.", photos: ["#16130F"], created: Date.now() - 3600e3 * 50 },
-  { id: "s4", title: "Детска количка 3 в 1", cat: "deca", price: 320, city: "Бургас", cond: "Употребявано", desc: "Cybex, пълен комплект — кош, седалка, кошче за кола. Запазена, малко ползвана.", phone: "0898 111 000", email: "deca@example.bg", name: "Елена С.", photos: ["#E8A33D"], created: Date.now() - 3600e3 * 72 },
-  { id: "s5", title: "Майстор — ремонт на бани", cat: "uslugi", price: 0, city: "София", cond: "Ново", desc: "Цялостни ремонти на бани и санитарни помещения. Гипсокартон, фаянс, ВиК. Безплатен оглед.", phone: "0876 909 909", email: "remont@example.bg", name: "Стефан Д.", photos: ["#3C6E47"], created: Date.now() - 3600e3 * 8 },
-  { id: "s6", title: "Електрическа китара Fender", cat: "hobi", price: 980, city: "Русе", cond: "Като ново", desc: "Fender Player Stratocaster, sunburst, с калъф и ремък. Звук — мечта.", phone: "0883 404 404", email: "music@example.bg", name: "Никола В.", photos: ["#C9762B"], created: Date.now() - 3600e3 * 14 },
-];
-
 const fmtPrice = (p) => p === 0 ? "По договаряне" : new Intl.NumberFormat("bg-BG").format(p) + " лв.";
-const fmtTime = (t) => {
+const fmtTime = (iso) => {
+  const t = new Date(iso).getTime();
   const m = Math.floor((Date.now() - t) / 60000);
+  if (m < 1) return "току-що";
   if (m < 60) return `преди ${m} мин`;
   const h = Math.floor(m / 60);
   if (h < 24) return `преди ${h} ч`;
@@ -62,11 +54,16 @@ function useIsMobile() {
   return m;
 }
 
+const inp = { width: "100%", padding: "11px 12px", borderRadius: 10, border: "1.5px solid #e6dcc9", background: "#F4EBDD", fontSize: 15, color: "#16130F" };
+
 export default function Pazarche() {
   const isMobile = useIsMobile();
+  const [session, setSession] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+
   const [listings, setListings] = useState([]);
+  const [loadingList, setLoadingList] = useState(true);
   const [favs, setFavs] = useState([]);
-  const [loaded, setLoaded] = useState(false);
 
   const [cat, setCat] = useState("all");
   const [city, setCity] = useState("Цяла България");
@@ -78,26 +75,26 @@ export default function Pazarche() {
 
   const [detail, setDetail] = useState(null);
   const [posting, setPosting] = useState(false);
+  const [authView, setAuthView] = useState(null); // null | "login" | "signup"
   const [showFilters, setShowFilters] = useState(false);
 
-  // load persisted data (localStorage — works on any host)
+  // ---- AUTH ----
   useEffect(() => {
-    try {
-      const l = localStorage.getItem("pz_listings");
-      setListings(l ? JSON.parse(l) : SAMPLE);
-    } catch { setListings(SAMPLE); }
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // ---- favourites (local — лични за устройството) ----
+  useEffect(() => {
     try {
       const f = localStorage.getItem("pz_favs");
       if (f) setFavs(JSON.parse(f));
     } catch {}
-    setLoaded(true);
   }, []);
-
-  const persist = useCallback((next) => {
-    setListings(next);
-    try { localStorage.setItem("pz_listings", JSON.stringify(next)); } catch {}
-  }, []);
-
   const toggleFav = useCallback((id) => {
     setFavs((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
@@ -106,30 +103,67 @@ export default function Pazarche() {
     });
   }, []);
 
-  const addListing = useCallback((data) => {
-    const item = { ...data, id: "u" + Date.now(), created: Date.now() };
-    persist([item, ...listings]);
+  // ---- listings from Supabase ----
+  const loadListings = useCallback(async () => {
+    setLoadingList(true);
+    const { data, error } = await supabase
+      .from("listings")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (!error && data) setListings(data);
+    setLoadingList(false);
+  }, []);
+
+  useEffect(() => { loadListings(); }, [loadListings]);
+
+  const addListing = useCallback(async (form) => {
+    if (!session) { setAuthView("login"); return { error: "Трябва да влезеш в профила си." }; }
+    const row = {
+      user_id: session.user.id,
+      title: form.title,
+      cat: form.cat,
+      price: form.price === "" ? 0 : +form.price,
+      city: form.city,
+      cond: form.cond,
+      descr: form.descr,
+      phone: form.phone,
+      email: form.email || session.user.email,
+      seller_name: form.seller_name,
+      photo: form.photo,
+    };
+    const { data, error } = await supabase.from("listings").insert(row).select().single();
+    if (error) return { error: error.message };
+    setListings((prev) => [data, ...prev]);
     setPosting(false);
     setCat("all"); setCity("Цяла България"); setQ(""); setShowFavsOnly(false);
-  }, [listings, persist]);
+    return {};
+  }, [session]);
 
-  const removeListing = useCallback((id) => {
-    persist(listings.filter((l) => l.id !== id));
-    setDetail(null);
-  }, [listings, persist]);
+  const removeListing = useCallback(async (id) => {
+    const { error } = await supabase.from("listings").delete().eq("id", id);
+    if (!error) {
+      setListings((prev) => prev.filter((l) => l.id !== id));
+      setDetail(null);
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+  }, []);
 
   const filtered = useMemo(() => {
     let r = listings.filter((l) => {
       if (cat !== "all" && l.cat !== cat) return false;
       if (city !== "Цяла България" && l.city !== city) return false;
-      if (q && !(`${l.title} ${l.desc}`.toLowerCase().includes(q.toLowerCase()))) return false;
+      if (q && !(`${l.title} ${l.descr}`.toLowerCase().includes(q.toLowerCase()))) return false;
       if (minP && l.price < +minP) return false;
       if (maxP && l.price > +maxP) return false;
       if (showFavsOnly && !favs.includes(l.id)) return false;
       return true;
     });
     r = [...r].sort((a, b) =>
-      sort === "new" ? b.created - a.created
+      sort === "new" ? new Date(b.created_at) - new Date(a.created_at)
       : sort === "low" ? a.price - b.price
       : b.price - a.price
     );
@@ -138,7 +172,12 @@ export default function Pazarche() {
 
   const activeFilters = (cat !== "all") + (city !== "Цяла България") + (!!minP) + (!!maxP) + showFavsOnly;
 
-  if (!loaded) {
+  const goPost = () => {
+    if (!session) { setAuthView("signup"); setDetail(null); return; }
+    setPosting(true); setDetail(null);
+  };
+
+  if (!authReady) {
     return (
       <div style={{ minHeight: "100vh", background: "#F4EBDD", display: "grid", placeItems: "center", fontFamily: "system-ui" }}>
         <div style={{ fontSize: 28, fontWeight: 800, color: "#16130F", letterSpacing: "-0.02em" }}>Пазарче…</div>
@@ -165,30 +204,44 @@ export default function Pazarche() {
       {/* HEADER */}
       <header style={{ background: "#16130F", color: "#F4EBDD", position: "sticky", top: 0, zIndex: 40 }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: isMobile ? "11px 14px" : "14px 18px", display: "flex", alignItems: "center", gap: isMobile ? 10 : 18, flexWrap: "wrap" }}>
-          <div onClick={() => { setDetail(null); setPosting(false); }} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
+          <div onClick={() => { setDetail(null); setPosting(false); setAuthView(null); }} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, background: "#E8A33D", display: "grid", placeItems: "center", color: "#16130F", fontWeight: 900, fontSize: 20 }}>П</div>
             <span style={{ fontSize: 23, fontWeight: 800, letterSpacing: "-0.03em" }}>Пазарче</span>
           </div>
           {!isMobile && (
             <div style={{ flex: 1, position: "relative", maxWidth: 520 }}>
               <Search size={18} style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: "#9c8f7d" }} />
-              <input
-                value={q} onChange={(e) => { setQ(e.target.value); setDetail(null); setPosting(false); }}
+              <input value={q} onChange={(e) => { setQ(e.target.value); setDetail(null); setPosting(false); setAuthView(null); }}
                 placeholder="Какво търсиш?"
-                style={{ width: "100%", padding: "11px 14px 11px 40px", borderRadius: 11, border: "none", fontSize: 15, background: "#F4EBDD", color: "#16130F" }}
-              />
+                style={{ width: "100%", padding: "11px 14px 11px 40px", borderRadius: 11, border: "none", fontSize: 15, background: "#F4EBDD", color: "#16130F" }} />
             </div>
           )}
-          <div style={{ flex: isMobile ? "unset" : 0, marginLeft: "auto", display: "flex", gap: 8 }}>
-            <button onClick={() => { setShowFavsOnly((s) => !s); setDetail(null); setPosting(false); }}
-              className="pz-btn"
-              aria-label="Любими"
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={() => { setShowFavsOnly((s) => !s); setDetail(null); setPosting(false); setAuthView(null); }}
+              className="pz-btn" aria-label="Любими"
               style={{ background: showFavsOnly ? "#E8A33D" : "transparent", color: showFavsOnly ? "#16130F" : "#F4EBDD", border: "1.5px solid #E8A33D", borderRadius: 11, padding: "9px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, minHeight: 44 }}>
               <Heart size={17} fill={showFavsOnly ? "#16130F" : "none"} /> <span style={{ display: favs.length ? "inline" : "none" }}>{favs.length}</span>
             </button>
-            <button onClick={() => { setPosting(true); setDetail(null); }}
-              className="pz-btn"
-              aria-label="Добави обява"
+            {session ? (
+              <>
+                {!isMobile && (
+                  <span style={{ fontSize: 13, color: "#c9bda8", display: "flex", alignItems: "center", gap: 5, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <User size={15} /> {session.user.email}
+                  </span>
+                )}
+                <button onClick={logout} className="pz-btn" aria-label="Изход"
+                  style={{ background: "transparent", color: "#F4EBDD", border: "1.5px solid #4a4339", borderRadius: 11, padding: "9px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, minHeight: 44 }}>
+                  <LogOut size={16} /> {!isMobile && "Изход"}
+                </button>
+              </>
+            ) : (
+              <button onClick={() => { setAuthView("login"); setDetail(null); setPosting(false); }}
+                className="pz-btn"
+                style={{ background: "transparent", color: "#F4EBDD", border: "1.5px solid #4a4339", borderRadius: 11, padding: "9px 14px", cursor: "pointer", fontWeight: 700, fontSize: 14, minHeight: 44 }}>
+                Вход
+              </button>
+            )}
+            <button onClick={goPost} className="pz-btn" aria-label="Добави обява"
               style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 11, padding: isMobile ? "9px 13px" : "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 7, fontWeight: 800, fontSize: 14, whiteSpace: "nowrap", minHeight: 44 }}>
               <Plus size={18} /> {!isMobile && "Добави обява"}
             </button>
@@ -196,18 +249,16 @@ export default function Pazarche() {
           {isMobile && (
             <div style={{ flexBasis: "100%", position: "relative" }}>
               <Search size={18} style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: "#9c8f7d" }} />
-              <input
-                value={q} onChange={(e) => { setQ(e.target.value); setDetail(null); setPosting(false); }}
+              <input value={q} onChange={(e) => { setQ(e.target.value); setDetail(null); setPosting(false); setAuthView(null); }}
                 placeholder="Какво търсиш?"
-                style={{ width: "100%", padding: "12px 14px 12px 40px", borderRadius: 11, border: "none", fontSize: 16, background: "#F4EBDD", color: "#16130F" }}
-              />
+                style={{ width: "100%", padding: "12px 14px 12px 40px", borderRadius: 11, border: "none", fontSize: 16, background: "#F4EBDD", color: "#16130F" }} />
             </div>
           )}
         </div>
       </header>
 
       {/* CATEGORY STRIP */}
-      {!detail && !posting && (
+      {!detail && !posting && !authView && (
         <div style={{ background: "#fff", borderBottom: "1px solid #e6dcc9", position: "sticky", top: isMobile ? 112 : 64, zIndex: 30, overflowX: "auto" }}>
           <div style={{ maxWidth: 1180, margin: "0 auto", padding: "10px 18px", display: "flex", gap: 8 }}>
             {CATEGORIES.map((c) => (
@@ -221,13 +272,14 @@ export default function Pazarche() {
       )}
 
       <main style={{ maxWidth: 1180, margin: "0 auto", padding: "0 18px 60px" }}>
-        {posting ? (
-          <PostForm onSubmit={addListing} onCancel={() => setPosting(false)} />
+        {authView ? (
+          <Auth view={authView} setView={setAuthView} onDone={() => setAuthView(null)} />
+        ) : posting ? (
+          <PostForm onSubmit={addListing} onCancel={() => setPosting(false)} defaultName={session?.user?.email?.split("@")[0] || ""} defaultEmail={session?.user?.email || ""} />
         ) : detail ? (
-          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} isMobile={isMobile} />
+          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
         ) : (
           <>
-            {/* HERO — only when no search/filter active */}
             {activeFilters === 0 && !q && (
               <section style={{ padding: "44px 0 28px" }}>
                 <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.14em", color: "#C9762B", textTransform: "uppercase", marginBottom: 10 }}>Безплатни обяви · Цяла България</div>
@@ -240,7 +292,6 @@ export default function Pazarche() {
               </section>
             )}
 
-            {/* CONTROLS BAR */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 0", flexWrap: "wrap" }}>
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-0.02em" }}>
                 {showFavsOnly ? "Любими обяви" : CATEGORIES.find((c) => c.id === cat)?.label}
@@ -259,7 +310,6 @@ export default function Pazarche() {
               </select>
             </div>
 
-            {/* FILTER PANEL */}
             {showFilters && (
               <div style={{ background: "#fff", border: "1px solid #e6dcc9", borderRadius: 14, padding: 18, marginBottom: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
                 <Field label="Град">
@@ -282,14 +332,15 @@ export default function Pazarche() {
               </div>
             )}
 
-            {/* GRID */}
-            {filtered.length === 0 ? (
+            {loadingList ? (
+              <div style={{ textAlign: "center", padding: "70px 20px", color: "#5c5345", fontWeight: 600 }}>Зареждане на обявите…</div>
+            ) : filtered.length === 0 ? (
               <div style={{ textAlign: "center", padding: "70px 20px", color: "#5c5345" }}>
                 <div style={{ fontSize: 44, marginBottom: 12 }}>🔍</div>
                 <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 6 }}>Няма намерени обяви</div>
                 <p style={{ margin: "0 0 18px" }}>Опитай с друга категория или махни част от филтрите.</p>
-                <button onClick={() => setPosting(true)} style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 10, padding: "11px 18px", fontWeight: 800, cursor: "pointer" }}>
-                  Добави първата обява
+                <button onClick={goPost} style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 10, padding: "11px 18px", fontWeight: 800, cursor: "pointer" }}>
+                  Добави обява
                 </button>
               </div>
             ) : (
@@ -313,8 +364,6 @@ export default function Pazarche() {
   );
 }
 
-const inp = { width: "100%", padding: "11px 12px", borderRadius: 10, border: "1.5px solid #e6dcc9", background: "#F4EBDD", fontSize: 15, color: "#16130F" };
-
 function Field({ label, children }) {
   return (
     <label style={{ display: "block" }}>
@@ -324,8 +373,85 @@ function Field({ label, children }) {
   );
 }
 
+function Err({ children }) {
+  return <span style={{ color: "#a04030", fontSize: 13, fontWeight: 600, marginTop: 5, display: "block" }}>{children}</span>;
+}
+
+/* ---------------- AUTH ---------------- */
+function Auth({ view, setView, onDone }) {
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [err, setErr] = useState(null);
+  const isSignup = view === "signup";
+
+  const submit = async () => {
+    setErr(null); setMsg(null);
+    if (!email.trim() || !pass) { setErr("Попълни имейл и парола."); return; }
+    if (pass.length < 6) { setErr("Паролата трябва да е поне 6 знака."); return; }
+    setBusy(true);
+    if (isSignup) {
+      const { data, error } = await supabase.auth.signUp({ email: email.trim(), password: pass });
+      setBusy(false);
+      if (error) { setErr(translateAuthError(error.message)); return; }
+      if (data.session) { onDone(); }
+      else { setMsg("Изпратихме ти имейл за потвърждение. Провери пощата си и потвърди регистрацията, после влез."); }
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass });
+      setBusy(false);
+      if (error) { setErr(translateAuthError(error.message)); return; }
+      onDone();
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 420, margin: "40px auto 0" }}>
+      <div style={{ background: "#fff", borderRadius: 18, padding: 28, border: "1px solid #e6dcc9" }}>
+        <h1 style={{ margin: "0 0 6px", fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em", textAlign: "center" }}>
+          {isSignup ? "Регистрация" : "Вход"}
+        </h1>
+        <p style={{ textAlign: "center", color: "#5c5345", margin: "0 0 22px", fontSize: 15 }}>
+          {isSignup ? "Вече имаш профил?" : "Нямаш профил още?"}{" "}
+          <button onClick={() => { setView(isSignup ? "login" : "signup"); setErr(null); setMsg(null); }}
+            style={{ background: "none", border: "none", color: "#C9762B", fontWeight: 800, cursor: "pointer", fontSize: 15, padding: 0 }}>
+            {isSignup ? "Влез" : "Регистрирай се"}
+          </button>
+        </p>
+
+        <div style={{ display: "grid", gap: 14 }}>
+          <Field label="Имейл">
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ivan@example.bg" style={inp} autoComplete="email" />
+          </Field>
+          <Field label="Парола">
+            <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="поне 6 знака" style={inp} autoComplete={isSignup ? "new-password" : "current-password"}
+              onKeyDown={(e) => e.key === "Enter" && submit()} />
+          </Field>
+
+          {err && <div style={{ background: "#fbeae5", color: "#a04030", padding: "10px 12px", borderRadius: 10, fontSize: 14, fontWeight: 600 }}>{err}</div>}
+          {msg && <div style={{ background: "#e7f0e9", color: "#2f5938", padding: "10px 12px", borderRadius: 10, fontSize: 14, fontWeight: 600 }}>{msg}</div>}
+
+          <button onClick={submit} disabled={busy} className="pz-btn"
+            style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 12, padding: "14px", fontWeight: 800, fontSize: 16, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1 }}>
+            {busy ? "Момент…" : isSignup ? "Създай профил" : "Влез"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function translateAuthError(m) {
+  if (/invalid login/i.test(m)) return "Грешен имейл или парола.";
+  if (/already registered|already exists/i.test(m)) return "Вече има профил с този имейл. Влез вместо това.";
+  if (/email/i.test(m) && /valid/i.test(m)) return "Невалиден имейл адрес.";
+  if (/password/i.test(m)) return "Проблем с паролата — пробвай по-дълга.";
+  return "Нещо се обърка. Опитай пак.";
+}
+
+/* ---------------- CARD ---------------- */
 function Card({ item, fav, onFav, onOpen }) {
-  const bg = item.photos?.[0] || "#C9762B";
+  const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
   return (
     <article className="pz-card" onClick={onOpen}
@@ -342,17 +468,17 @@ function Card({ item, fav, onFav, onOpen }) {
         <h3 style={{ margin: "4px 0 8px", fontSize: 15.5, fontWeight: 600, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: 40 }}>{item.title}</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#9c8f7d" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 3 }}><MapPin size={13} /> {item.city}</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><Clock size={13} /> {fmtTime(item.created)}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><Clock size={13} /> {fmtTime(item.created_at)}</span>
         </div>
       </div>
     </article>
   );
 }
 
-function Detail({ item, onBack, isFav, onFav, onRemove, isMobile }) {
-  const bg = item.photos?.[0] || "#C9762B";
+/* ---------------- DETAIL ---------------- */
+function Detail({ item, onBack, isFav, onFav, onRemove, isMobile, isOwner }) {
+  const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
-  const isUser = item.id.startsWith("u");
   return (
     <div style={{ padding: "20px 0 0" }}>
       <button onClick={onBack} className="pz-btn"
@@ -367,7 +493,7 @@ function Detail({ item, onBack, isFav, onFav, onRemove, isMobile }) {
           </div>
           <div style={{ background: "#fff", borderRadius: 16, padding: 22, marginTop: 16, border: "1px solid #e6dcc9" }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 800 }}>Описание</h3>
-            <p style={{ margin: 0, lineHeight: 1.65, color: "#3a342b", whiteSpace: "pre-wrap" }}>{item.desc}</p>
+            <p style={{ margin: 0, lineHeight: 1.65, color: "#3a342b", whiteSpace: "pre-wrap" }}>{item.descr}</p>
           </div>
         </div>
         <aside style={{ position: isMobile ? "static" : "sticky", top: 130 }}>
@@ -377,23 +503,25 @@ function Detail({ item, onBack, isFav, onFav, onRemove, isMobile }) {
             <div style={{ display: "flex", gap: 14, margin: "14px 0", flexWrap: "wrap", fontSize: 14, color: "#5c5345" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}><MapPin size={15} /> {item.city}</span>
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Tag size={15} /> {item.cond}</span>
-              <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Clock size={15} /> {fmtTime(item.created)}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Clock size={15} /> {fmtTime(item.created_at)}</span>
             </div>
             <div style={{ borderTop: "1px solid #eee3d2", paddingTop: 16, marginTop: 4 }}>
               <div style={{ fontSize: 13, color: "#9c8f7d", fontWeight: 700 }}>Продавач</div>
-              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>{item.name}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>{item.seller_name}</div>
               <a href={`tel:${item.phone}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#16130F", color: "#F4EBDD", textDecoration: "none", borderRadius: 11, padding: "13px", fontWeight: 800, fontSize: 15, marginBottom: 9 }}>
                 <Phone size={18} /> {item.phone}
               </a>
-              <a href={`mailto:${item.email}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#fff", color: "#16130F", textDecoration: "none", border: "1.5px solid #16130F", borderRadius: 11, padding: "12px", fontWeight: 800, fontSize: 15 }}>
-                <Mail size={18} /> Изпрати имейл
-              </a>
+              {item.email && (
+                <a href={`mailto:${item.email}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#fff", color: "#16130F", textDecoration: "none", border: "1.5px solid #16130F", borderRadius: 11, padding: "12px", fontWeight: 800, fontSize: 15 }}>
+                  <Mail size={18} /> Изпрати имейл
+                </a>
+              )}
             </div>
             <button onClick={onFav} className="pz-btn"
               style={{ width: "100%", marginTop: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: isFav ? "#F4EBDD" : "#fff", border: "1.5px solid #C9762B", color: "#C9762B", borderRadius: 11, padding: "12px", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
               <Heart size={18} fill={isFav ? "#C9762B" : "none"} /> {isFav ? "В любими" : "Запази"}
             </button>
-            {isUser && (
+            {isOwner && (
               <button onClick={() => onRemove(item.id)}
                 style={{ width: "100%", marginTop: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: "none", border: "none", color: "#a04030", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                 <Trash2 size={16} /> Изтрий обявата
@@ -406,21 +534,27 @@ function Detail({ item, onBack, isFav, onFav, onRemove, isMobile }) {
   );
 }
 
-function PostForm({ onSubmit, onCancel }) {
-  const [f, setF] = useState({ title: "", cat: "tehnika", price: "", city: "София", cond: "Употребявано", desc: "", name: "", phone: "", email: "", photos: ["#E8A33D"] });
+/* ---------------- POST FORM ---------------- */
+function PostForm({ onSubmit, onCancel, defaultName, defaultEmail }) {
+  const [f, setF] = useState({ title: "", cat: "tehnika", price: "", city: "София", cond: "Употребявано", descr: "", seller_name: defaultName, phone: "", email: defaultEmail, photo: "#E8A33D" });
   const [err, setErr] = useState({});
+  const [serverErr, setServerErr] = useState(null);
+  const [busy, setBusy] = useState(false);
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
   const SWATCHES = ["#E8A33D", "#C9762B", "#3C6E47", "#16130F", "#7a5cc4", "#3a7bd5"];
 
-  const submit = () => {
+  const submit = async () => {
     const e = {};
     if (!f.title.trim()) e.title = "Въведи заглавие";
-    if (!f.desc.trim()) e.desc = "Добави описание";
-    if (!f.name.trim()) e.name = "Въведи име";
+    if (!f.descr.trim()) e.descr = "Добави описание";
+    if (!f.seller_name.trim()) e.seller_name = "Въведи име";
     if (!f.phone.trim()) e.phone = "Въведи телефон";
     setErr(e);
     if (Object.keys(e).length) return;
-    onSubmit({ ...f, price: f.price === "" ? 0 : +f.price });
+    setBusy(true); setServerErr(null);
+    const res = await onSubmit(f);
+    setBusy(false);
+    if (res?.error) setServerErr(res.error);
   };
 
   return (
@@ -464,23 +598,23 @@ function PostForm({ onSubmit, onCancel }) {
         <Field label="Снимка (избери цвят-плочка)">
           <div style={{ display: "flex", gap: 10 }}>
             {SWATCHES.map((s) => (
-              <button key={s} onClick={() => set("photos", [s])} aria-label="Избор на плочка"
-                style={{ width: 42, height: 42, borderRadius: 10, background: s, border: f.photos[0] === s ? "3px solid #16130F" : "2px solid #e6dcc9", cursor: "pointer", display: "grid", placeItems: "center" }}>
-                {f.photos[0] === s && <Check size={18} color="#fff" />}
+              <button key={s} onClick={() => set("photo", s)} aria-label="Избор на плочка"
+                style={{ width: 42, height: 42, borderRadius: 10, background: s, border: f.photo === s ? "3px solid #16130F" : "2px solid #e6dcc9", cursor: "pointer", display: "grid", placeItems: "center" }}>
+                {f.photo === s && <Check size={18} color="#fff" />}
               </button>
             ))}
           </div>
         </Field>
 
         <Field label="Описание *">
-          <textarea value={f.desc} onChange={(e) => set("desc", e.target.value)} rows={4} placeholder="Опиши какво продаваш — състояние, детайли, причина за продажба…" style={{ ...inp, resize: "vertical", borderColor: err.desc ? "#a04030" : "#e6dcc9" }} />
-          {err.desc && <Err>{err.desc}</Err>}
+          <textarea value={f.descr} onChange={(e) => set("descr", e.target.value)} rows={4} placeholder="Опиши какво продаваш — състояние, детайли, причина за продажба…" style={{ ...inp, resize: "vertical", borderColor: err.descr ? "#a04030" : "#e6dcc9" }} />
+          {err.descr && <Err>{err.descr}</Err>}
         </Field>
 
         <div style={{ borderTop: "1px solid #eee3d2", paddingTop: 16, display: "grid", gap: 14 }}>
           <Field label="Твоето име *">
-            <input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Иван П." style={{ ...inp, borderColor: err.name ? "#a04030" : "#e6dcc9" }} />
-            {err.name && <Err>{err.name}</Err>}
+            <input value={f.seller_name} onChange={(e) => set("seller_name", e.target.value)} placeholder="Иван П." style={{ ...inp, borderColor: err.seller_name ? "#a04030" : "#e6dcc9" }} />
+            {err.seller_name && <Err>{err.seller_name}</Err>}
           </Field>
           <div className="pz-row2">
             <Field label="Телефон *">
@@ -493,15 +627,13 @@ function PostForm({ onSubmit, onCancel }) {
           </div>
         </div>
 
-        <button onClick={submit} className="pz-btn"
-          style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 12, padding: "15px", fontWeight: 800, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          <Check size={20} /> Публикувай обявата
+        {serverErr && <div style={{ background: "#fbeae5", color: "#a04030", padding: "10px 12px", borderRadius: 10, fontSize: 14, fontWeight: 600 }}>{serverErr}</div>}
+
+        <button onClick={submit} disabled={busy} className="pz-btn"
+          style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 12, padding: "15px", fontWeight: 800, fontSize: 16, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <Check size={20} /> {busy ? "Публикуване…" : "Публикувай обявата"}
         </button>
       </div>
     </div>
   );
-}
-
-function Err({ children }) {
-  return <span style={{ color: "#a04030", fontSize: 13, fontWeight: 600, marginTop: 5, display: "block" }}>{children}</span>;
 }
