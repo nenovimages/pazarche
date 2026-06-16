@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Search, MapPin, Heart, Plus, ChevronLeft, Phone, Mail,
-  Tag, Clock, Filter, Trash2, Check, LogOut, User, ImagePlus, X
+  Tag, Clock, Filter, Trash2, Check, LogOut, User, ImagePlus, X, Pencil
 } from "lucide-react";
 import { supabase } from "./supabase";
 
@@ -75,8 +75,10 @@ export default function Pazarche() {
 
   const [detail, setDetail] = useState(null);
   const [posting, setPosting] = useState(false);
+  const [editing, setEditing] = useState(null); // listing being edited
   const [authView, setAuthView] = useState(null); // null | "login" | "signup"
   const [showFilters, setShowFilters] = useState(false);
+  const [showMineOnly, setShowMineOnly] = useState(false);
 
   // ---- AUTH ----
   useEffect(() => {
@@ -148,6 +150,28 @@ export default function Pazarche() {
     }
   }, []);
 
+  const updateListing = useCallback(async (id, form, photoUrls) => {
+    if (!session) { setAuthView("login"); return { error: "Трябва да влезеш в профила си." }; }
+    const patch = {
+      title: form.title,
+      cat: form.cat,
+      price: form.price === "" ? 0 : +form.price,
+      city: form.city,
+      cond: form.cond,
+      descr: form.descr,
+      phone: form.phone,
+      email: form.email || session.user.email,
+      seller_name: form.seller_name,
+      photos: photoUrls || [],
+    };
+    const { data, error } = await supabase.from("listings").update(patch).eq("id", id).select().single();
+    if (error) return { error: error.message };
+    setListings((prev) => prev.map((l) => (l.id === id ? data : l)));
+    setEditing(null);
+    setDetail(data);
+    return {};
+  }, [session]);
+
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
     setSession(null);
@@ -155,6 +179,7 @@ export default function Pazarche() {
 
   const filtered = useMemo(() => {
     let r = listings.filter((l) => {
+      if (showMineOnly && l.user_id !== session?.user?.id) return false;
       if (cat !== "all" && l.cat !== cat) return false;
       if (city !== "Цяла България" && l.city !== city) return false;
       if (q && !(`${l.title} ${l.descr}`.toLowerCase().includes(q.toLowerCase()))) return false;
@@ -169,7 +194,11 @@ export default function Pazarche() {
       : b.price - a.price
     );
     return r;
-  }, [listings, cat, city, q, minP, maxP, sort, showFavsOnly, favs]);
+  }, [listings, cat, city, q, minP, maxP, sort, showFavsOnly, favs, showMineOnly, session]);
+
+  const myCount = useMemo(() =>
+    session ? listings.filter((l) => l.user_id === session.user.id).length : 0,
+  [listings, session]);
 
   const activeFilters = (cat !== "all") + (city !== "Цяла България") + (!!minP) + (!!maxP) + showFavsOnly;
 
@@ -205,7 +234,7 @@ export default function Pazarche() {
       {/* HEADER */}
       <header style={{ background: "#16130F", color: "#F4EBDD", position: "sticky", top: 0, zIndex: 40 }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: isMobile ? "11px 14px" : "14px 18px", display: "flex", alignItems: "center", gap: isMobile ? 10 : 18, flexWrap: "wrap" }}>
-          <div onClick={() => { setDetail(null); setPosting(false); setAuthView(null); }} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
+          <div onClick={() => { setDetail(null); setPosting(false); setAuthView(null); setEditing(null); }} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, background: "#E8A33D", display: "grid", placeItems: "center", color: "#16130F", fontWeight: 900, fontSize: 20 }}>П</div>
             <span style={{ fontSize: 23, fontWeight: 800, letterSpacing: "-0.03em" }}>Пазарче</span>
           </div>
@@ -225,9 +254,14 @@ export default function Pazarche() {
             </button>
             {session ? (
               <>
+                <button onClick={() => { setShowMineOnly((s) => !s); setShowFavsOnly(false); setDetail(null); setPosting(false); setAuthView(null); }}
+                  className="pz-btn" aria-label="Моите обяви"
+                  style={{ background: showMineOnly ? "#E8A33D" : "transparent", color: showMineOnly ? "#16130F" : "#F4EBDD", border: "1.5px solid #4a4339", borderColor: showMineOnly ? "#E8A33D" : "#4a4339", borderRadius: 11, padding: "9px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, minHeight: 44, whiteSpace: "nowrap" }}>
+                  <User size={16} /> {isMobile ? `(${myCount})` : `Моите обяви (${myCount})`}
+                </button>
                 {!isMobile && (
-                  <span style={{ fontSize: 13, color: "#c9bda8", display: "flex", alignItems: "center", gap: 5, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <User size={15} /> {session.user.email}
+                  <span style={{ fontSize: 13, color: "#c9bda8", display: "flex", alignItems: "center", gap: 5, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {session.user.email}
                   </span>
                 )}
                 <button onClick={logout} className="pz-btn" aria-label="Изход"
@@ -275,10 +309,20 @@ export default function Pazarche() {
       <main style={{ maxWidth: 1180, margin: "0 auto", padding: "0 18px 60px" }}>
         {authView ? (
           <Auth view={authView} setView={setAuthView} onDone={() => setAuthView(null)} />
+        ) : editing ? (
+          <PostForm
+            mode="edit"
+            existing={editing}
+            onSubmit={(form, urls) => updateListing(editing.id, form, urls)}
+            onCancel={() => { setEditing(null); setDetail(editing); }}
+            defaultName={editing.seller_name}
+            defaultEmail={editing.email || ""}
+            userId={session?.user?.id}
+          />
         ) : posting ? (
           <PostForm onSubmit={addListing} onCancel={() => setPosting(false)} defaultName={session?.user?.email?.split("@")[0] || ""} defaultEmail={session?.user?.email || ""} userId={session?.user?.id} />
         ) : detail ? (
-          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
+          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} onEdit={() => { setEditing(detail); setDetail(null); }} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
         ) : (
           <>
             {activeFilters === 0 && !q && (
@@ -487,7 +531,7 @@ function Card({ item, fav, onFav, onOpen }) {
 }
 
 /* ---------------- DETAIL ---------------- */
-function Detail({ item, onBack, isFav, onFav, onRemove, isMobile, isOwner }) {
+function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, isMobile, isOwner }) {
   const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
   const photos = item.photos || [];
@@ -555,10 +599,16 @@ function Detail({ item, onBack, isFav, onFav, onRemove, isMobile, isOwner }) {
               <Heart size={18} fill={isFav ? "#C9762B" : "none"} /> {isFav ? "В любими" : "Запази"}
             </button>
             {isOwner && (
-              <button onClick={() => onRemove(item.id)}
-                style={{ width: "100%", marginTop: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: "none", border: "none", color: "#a04030", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-                <Trash2 size={16} /> Изтрий обявата
-              </button>
+              <>
+                <button onClick={onEdit} className="pz-btn"
+                  style={{ width: "100%", marginTop: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#16130F", color: "#F4EBDD", border: "none", borderRadius: 11, padding: "12px", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+                  <Pencil size={17} /> Редактирай обявата
+                </button>
+                <button onClick={() => onRemove(item.id)}
+                  style={{ width: "100%", marginTop: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, background: "none", border: "none", color: "#a04030", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                  <Trash2 size={16} /> Изтрий обявата
+                </button>
+              </>
             )}
           </div>
         </aside>
@@ -568,20 +618,29 @@ function Detail({ item, onBack, isFav, onFav, onRemove, isMobile, isOwner }) {
 }
 
 /* ---------------- POST FORM ---------------- */
-function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId }) {
-  const [f, setF] = useState({ title: "", cat: "tehnika", price: "", city: "София", cond: "Употребявано", descr: "", seller_name: defaultName, phone: "", email: defaultEmail, photo: "#E8A33D" });
-  const [photos, setPhotos] = useState([]); // { file, preview }
+function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId, mode, existing }) {
+  const isEdit = mode === "edit";
+  const [f, setF] = useState(
+    isEdit
+      ? { title: existing.title, cat: existing.cat, price: existing.price === 0 ? "" : String(existing.price), city: existing.city, cond: existing.cond, descr: existing.descr, seller_name: existing.seller_name, phone: existing.phone, email: existing.email || "", photo: existing.photo || "#E8A33D" }
+      : { title: "", cat: "tehnika", price: "", city: "София", cond: "Употребявано", descr: "", seller_name: defaultName, phone: "", email: defaultEmail, photo: "#E8A33D" }
+  );
+  const [existingUrls, setExistingUrls] = useState(isEdit && existing.photos ? existing.photos : []);
+  const [photos, setPhotos] = useState([]); // нови: { file, preview }
   const [err, setErr] = useState({});
   const [serverErr, setServerErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
   const MAX_PHOTOS = 8;
+  const totalPhotos = existingUrls.length + photos.length;
+
+  const removeExisting = (i) => setExistingUrls((prev) => prev.filter((_, idx) => idx !== i));
 
   const onPick = (e) => {
     const files = Array.from(e.target.files || []);
     e.target.value = ""; // allow re-picking same file
-    const room = MAX_PHOTOS - photos.length;
+    const room = MAX_PHOTOS - totalPhotos;
     const toAdd = files.slice(0, room).map((file) => ({ file, preview: URL.createObjectURL(file) }));
     setPhotos((prev) => [...prev, ...toAdd]);
   };
@@ -617,10 +676,11 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId }) {
     if (Object.keys(e).length) return;
     setBusy(true); setServerErr(null);
     try {
-      let urls = [];
-      if (photos.length > 0) urls = await uploadAll();
-      setProgress("Публикуване…");
-      const res = await onSubmit(f, urls);
+      let newUrls = [];
+      if (photos.length > 0) newUrls = await uploadAll();
+      setProgress("Запазване…");
+      const allUrls = [...existingUrls, ...newUrls];
+      const res = await onSubmit(f, allUrls);
       if (res?.error) setServerErr(res.error);
     } catch (ex) {
       setServerErr("Проблем при качване на снимките. Опитай пак.");
@@ -633,8 +693,8 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId }) {
       <button onClick={onCancel} style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", color: "#5c5345", cursor: "pointer", fontWeight: 700, fontSize: 15, marginBottom: 16, padding: 0 }}>
         <ChevronLeft size={19} /> Отказ
       </button>
-      <h1 style={{ fontSize: 30, fontWeight: 800, margin: "0 0 6px", letterSpacing: "-0.03em" }}>Нова обява</h1>
-      <p style={{ color: "#5c5345", marginTop: 0, marginBottom: 22 }}>Попълни полетата. Обявата се публикува веднага и безплатно.</p>
+      <h1 style={{ fontSize: 30, fontWeight: 800, margin: "0 0 6px", letterSpacing: "-0.03em" }}>{isEdit ? "Редактиране на обява" : "Нова обява"}</h1>
+      <p style={{ color: "#5c5345", marginTop: 0, marginBottom: 22 }}>{isEdit ? "Промени каквото е нужно и запази." : "Попълни полетата. Обявата се публикува веднага и безплатно."}</p>
 
       <div style={{ background: "#fff", borderRadius: 16, padding: 22, border: "1px solid #e6dcc9", display: "grid", gap: 16 }}>
         <Field label="Заглавие *">
@@ -668,17 +728,30 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId }) {
 
         <Field label={`Снимки (до ${MAX_PHOTOS}) — първата е корица`}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {photos.map((p, i) => (
-              <div key={i} style={{ position: "relative", width: 84, height: 84 }}>
-                <img src={p.preview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10, border: i === 0 ? "3px solid #C9762B" : "2px solid #e6dcc9" }} />
+            {existingUrls.map((url, i) => (
+              <div key={`ex-${i}`} style={{ position: "relative", width: 84, height: 84 }}>
+                <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10, border: i === 0 ? "3px solid #C9762B" : "2px solid #e6dcc9" }} />
                 {i === 0 && <span style={{ position: "absolute", bottom: 3, left: 3, background: "rgba(201,118,43,.95)", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 5 }}>корица</span>}
-                <button onClick={() => removePhoto(i)} aria-label="Премахни"
+                <button onClick={() => removeExisting(i)} aria-label="Премахни"
                   style={{ position: "absolute", top: -7, right: -7, width: 24, height: 24, borderRadius: 999, background: "#16130F", color: "#fff", border: "2px solid #fff", display: "grid", placeItems: "center", cursor: "pointer", padding: 0 }}>
                   <X size={13} />
                 </button>
               </div>
             ))}
-            {photos.length < MAX_PHOTOS && (
+            {photos.map((p, i) => {
+              const isFirst = existingUrls.length === 0 && i === 0;
+              return (
+                <div key={`new-${i}`} style={{ position: "relative", width: 84, height: 84 }}>
+                  <img src={p.preview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10, border: isFirst ? "3px solid #C9762B" : "2px solid #e6dcc9" }} />
+                  {isFirst && <span style={{ position: "absolute", bottom: 3, left: 3, background: "rgba(201,118,43,.95)", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 5px", borderRadius: 5 }}>корица</span>}
+                  <button onClick={() => removePhoto(i)} aria-label="Премахни"
+                    style={{ position: "absolute", top: -7, right: -7, width: 24, height: 24, borderRadius: 999, background: "#16130F", color: "#fff", border: "2px solid #fff", display: "grid", placeItems: "center", cursor: "pointer", padding: 0 }}>
+                    <X size={13} />
+                  </button>
+                </div>
+              );
+            })}
+            {totalPhotos < MAX_PHOTOS && (
               <label style={{ width: 84, height: 84, borderRadius: 10, border: "2px dashed #c9bda8", display: "grid", placeItems: "center", cursor: "pointer", color: "#9c8f7d", background: "#F4EBDD" }}>
                 <input type="file" accept="image/*" multiple onChange={onPick} style={{ display: "none" }} />
                 <span style={{ display: "grid", placeItems: "center", gap: 3, textAlign: "center" }}>
@@ -718,7 +791,7 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId }) {
 
         <button onClick={submit} disabled={busy} className="pz-btn"
           style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 12, padding: "15px", fontWeight: 800, fontSize: 16, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          <Check size={20} /> {busy ? (progress || "Публикуване…") : "Публикувай обявата"}
+          <Check size={20} /> {busy ? (progress || "Запазване…") : isEdit ? "Запази промените" : "Публикувай обявата"}
         </button>
       </div>
     </div>
