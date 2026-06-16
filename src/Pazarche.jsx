@@ -458,9 +458,9 @@ function Card({ item, fav, onFav, onOpen }) {
   return (
     <article className="pz-card" onClick={onOpen}
       style={{ background: "#fff", borderRadius: 16, overflow: "hidden", cursor: "pointer", border: "1px solid #e6dcc9" }}>
-      <div style={{ height: 160, background: cover ? "#eee" : bg, position: "relative", display: "grid", placeItems: "center" }}>
+      <div style={{ aspectRatio: "4 / 3", width: "100%", background: cover ? "#eee" : bg, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
         {cover ? (
-          <img src={cover} alt={item.title} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <img src={cover} alt={item.title} loading="lazy" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         ) : (
           <span style={{ fontSize: 46, opacity: 0.9 }}>{catObj?.icon}</span>
         )}
