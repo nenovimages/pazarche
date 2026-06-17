@@ -79,6 +79,7 @@ export default function Pazarche() {
   const [authView, setAuthView] = useState(null); // null | "login" | "signup"
   const [showFilters, setShowFilters] = useState(false);
   const [showMineOnly, setShowMineOnly] = useState(false);
+  const [hideSold, setHideSold] = useState(false);
 
   // ---- AUTH ----
   useEffect(() => {
@@ -172,6 +173,14 @@ export default function Pazarche() {
     return {};
   }, [session]);
 
+  const toggleSold = useCallback(async (id, sold) => {
+    const { data, error } = await supabase.from("listings").update({ sold }).eq("id", id).select().single();
+    if (!error && data) {
+      setListings((prev) => prev.map((l) => (l.id === id ? data : l)));
+      setDetail((d) => (d && d.id === id ? data : d));
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
     setSession(null);
@@ -186,6 +195,7 @@ export default function Pazarche() {
       if (minP && l.price < +minP) return false;
       if (maxP && l.price > +maxP) return false;
       if (showFavsOnly && !favs.includes(l.id)) return false;
+      if (hideSold && l.sold) return false;
       return true;
     });
     r = [...r].sort((a, b) =>
@@ -194,7 +204,7 @@ export default function Pazarche() {
       : b.price - a.price
     );
     return r;
-  }, [listings, cat, city, q, minP, maxP, sort, showFavsOnly, favs, showMineOnly, session]);
+  }, [listings, cat, city, q, minP, maxP, sort, showFavsOnly, favs, showMineOnly, session, hideSold]);
 
   const myCount = useMemo(() =>
     session ? listings.filter((l) => l.user_id === session.user.id).length : 0,
@@ -322,7 +332,7 @@ export default function Pazarche() {
         ) : posting ? (
           <PostForm onSubmit={addListing} onCancel={() => setPosting(false)} defaultName={session?.user?.email?.split("@")[0] || ""} defaultEmail={session?.user?.email || ""} userId={session?.user?.id} />
         ) : detail ? (
-          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} onEdit={() => { setEditing(detail); setDetail(null); }} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
+          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} onEdit={() => { setEditing(detail); setDetail(null); }} onToggleSold={toggleSold} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
         ) : (
           <>
             {activeFilters === 0 && !q && (
@@ -368,8 +378,12 @@ export default function Pazarche() {
                 <Field label="Цена до">
                   <input type="number" value={maxP} onChange={(e) => setMaxP(e.target.value)} placeholder="—" style={inp} />
                 </Field>
+                <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", alignSelf: "flex-end", padding: "11px 0" }}>
+                  <input type="checkbox" checked={hideSold} onChange={(e) => setHideSold(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#C9762B", cursor: "pointer" }} />
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#5c5345" }}>Скрий продадените</span>
+                </label>
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button onClick={() => { setCity("Цяла България"); setMinP(""); setMaxP(""); setCat("all"); setShowFavsOnly(false); }}
+                  <button onClick={() => { setCity("Цяла България"); setMinP(""); setMaxP(""); setCat("all"); setShowFavsOnly(false); setHideSold(false); }}
                     style={{ padding: "11px 14px", borderRadius: 10, border: "1.5px solid #C9762B", background: "#fff", color: "#C9762B", fontWeight: 700, cursor: "pointer", width: "100%" }}>
                     Изчисти филтрите
                   </button>
@@ -504,9 +518,14 @@ function Card({ item, fav, onFav, onOpen }) {
       style={{ background: "#fff", borderRadius: 16, overflow: "hidden", cursor: "pointer", border: "1px solid #e6dcc9" }}>
       <div style={{ aspectRatio: "4 / 3", width: "100%", background: cover ? "#eee" : bg, position: "relative", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
         {cover ? (
-          <img src={cover} alt={item.title} loading="lazy" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          <img src={cover} alt={item.title} loading="lazy" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block", filter: item.sold ? "grayscale(0.7) brightness(0.85)" : "none" }} />
         ) : (
-          <span style={{ fontSize: 46, opacity: 0.9 }}>{catObj?.icon}</span>
+          <span style={{ fontSize: 46, opacity: item.sold ? 0.5 : 0.9 }}>{catObj?.icon}</span>
+        )}
+        {item.sold && (
+          <span style={{ position: "absolute", top: 10, left: 10, background: "#a04030", color: "#fff", fontSize: 12, fontWeight: 800, padding: "4px 10px", borderRadius: 999 }}>
+            ПРОДАДЕНО
+          </span>
         )}
         {item.photos && item.photos.length > 1 && (
           <span style={{ position: "absolute", bottom: 10, left: 10, background: "rgba(22,19,15,.78)", color: "#F4EBDD", fontSize: 12, fontWeight: 700, padding: "3px 8px", borderRadius: 999 }}>
@@ -531,7 +550,7 @@ function Card({ item, fav, onFav, onOpen }) {
 }
 
 /* ---------------- DETAIL ---------------- */
-function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, isMobile, isOwner }) {
+function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, isMobile, isOwner }) {
   const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
   const photos = item.photos || [];
@@ -548,8 +567,9 @@ function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, isMobile, isOwne
           {hasPhotos ? (
             <div>
               <div style={{ height: isMobile ? 280 : 420, background: "#eee", borderRadius: 18, overflow: "hidden", position: "relative" }}>
-                <img src={photos[active]} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <img src={photos[active]} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover", filter: item.sold ? "grayscale(0.7) brightness(0.85)" : "none" }} />
                 <span style={{ position: "absolute", top: 14, left: 14, background: "rgba(244,235,221,.95)", padding: "5px 12px", borderRadius: 999, fontWeight: 700, fontSize: 13 }}>{catObj?.label}</span>
+                {item.sold && <span style={{ position: "absolute", top: 14, right: 14, background: "#a04030", color: "#fff", padding: "6px 14px", borderRadius: 999, fontWeight: 800, fontSize: 14 }}>ПРОДАДЕНО</span>}
               </div>
               {photos.length > 1 && (
                 <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -563,9 +583,10 @@ function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, isMobile, isOwne
               )}
             </div>
           ) : (
-            <div style={{ height: isMobile ? 240 : 360, background: bg, borderRadius: 18, display: "grid", placeItems: "center", position: "relative" }}>
+            <div style={{ height: isMobile ? 240 : 360, background: bg, borderRadius: 18, display: "grid", placeItems: "center", position: "relative", filter: item.sold ? "grayscale(0.7) brightness(0.85)" : "none" }}>
               <span style={{ fontSize: isMobile ? 72 : 96, opacity: 0.92 }}>{catObj?.icon}</span>
               <span style={{ position: "absolute", top: 14, left: 14, background: "rgba(244,235,221,.95)", padding: "5px 12px", borderRadius: 999, fontWeight: 700, fontSize: 13 }}>{catObj?.label}</span>
+              {item.sold && <span style={{ position: "absolute", top: 14, right: 14, background: "#a04030", color: "#fff", padding: "6px 14px", borderRadius: 999, fontWeight: 800, fontSize: 14 }}>ПРОДАДЕНО</span>}
             </div>
           )}
           <div style={{ background: "#fff", borderRadius: 16, padding: 22, marginTop: 16, border: "1px solid #e6dcc9" }}>
@@ -600,6 +621,10 @@ function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, isMobile, isOwne
             </button>
             {isOwner && (
               <>
+                <button onClick={() => onToggleSold(item.id, !item.sold)} className="pz-btn"
+                  style={{ width: "100%", marginTop: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: item.sold ? "#3C6E47" : "#fff", color: item.sold ? "#fff" : "#3C6E47", border: "1.5px solid #3C6E47", borderRadius: 11, padding: "12px", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+                  <Check size={17} /> {item.sold ? "Върни като активна" : "Маркирай като продадено"}
+                </button>
                 <button onClick={onEdit} className="pz-btn"
                   style={{ width: "100%", marginTop: 9, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#16130F", color: "#F4EBDD", border: "none", borderRadius: 11, padding: "12px", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                   <Pencil size={17} /> Редактирай обявата
