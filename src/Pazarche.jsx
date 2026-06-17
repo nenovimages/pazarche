@@ -117,6 +117,7 @@ export default function Pazarche() {
   const [msgView, setMsgView] = useState(null); // null | "list" | "chat"
   const [activeConv, setActiveConv] = useState(null);
   const [unread, setUnread] = useState(0);
+  const [profileUser, setProfileUser] = useState(null); // { id, name } на разглеждан продавач
   const [showMineOnly, setShowMineOnly] = useState(false);
   const [hideSold, setHideSold] = useState(false);
 
@@ -317,7 +318,7 @@ export default function Pazarche() {
       {/* HEADER */}
       <header style={{ background: "#16130F", color: "#F4EBDD", position: "sticky", top: 0, zIndex: 40 }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: isMobile ? "11px 14px" : "14px 18px", display: "flex", alignItems: "center", gap: isMobile ? 10 : 18, flexWrap: "wrap" }}>
-          <div onClick={() => { setDetail(null); setPosting(false); setAuthView(null); setEditing(null); setMsgView(null); setActiveConv(null); }} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
+          <div onClick={() => { setDetail(null); setPosting(false); setAuthView(null); setEditing(null); setMsgView(null); setActiveConv(null); setProfileUser(null); }} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, background: "#E8A33D", display: "grid", placeItems: "center", color: "#16130F", fontWeight: 900, fontSize: 20 }}>П</div>
             <span style={{ fontSize: 23, fontWeight: 800, letterSpacing: "-0.03em" }}>Пазарче</span>
           </div>
@@ -386,7 +387,7 @@ export default function Pazarche() {
       </header>
 
       {/* CATEGORY STRIP */}
-      {!detail && !posting && !authView && !editing && !msgView && (
+      {!detail && !posting && !authView && !editing && !msgView && !profileUser && (
         <div style={{ background: "#fff", borderBottom: "1px solid #e6dcc9", position: "sticky", top: isMobile ? 112 : 64, zIndex: 30, overflowX: "auto" }}>
           <div style={{ maxWidth: 1180, margin: "0 auto", padding: "10px 18px", display: "flex", gap: 8 }}>
             {CATEGORIES.map((c) => (
@@ -400,7 +401,16 @@ export default function Pazarche() {
       )}
 
       <main style={{ maxWidth: 1180, margin: "0 auto", padding: "0 18px 60px" }}>
-        {msgView === "chat" && activeConv ? (
+        {profileUser ? (
+          <SellerProfile
+            profile={profileUser}
+            listings={listings}
+            onBack={() => setProfileUser(null)}
+            onOpen={(l) => { setProfileUser(null); setDetail(l); }}
+            favs={favs}
+            onFav={toggleFav}
+          />
+        ) : msgView === "chat" && activeConv ? (
           <ChatView conversation={activeConv} userId={session?.user?.id} onBack={() => { setActiveConv(null); setMsgView("list"); }} onRead={refreshUnread} />
         ) : msgView === "list" ? (
           <ConversationList userId={session?.user?.id} onBack={() => setMsgView(null)} onOpen={(c) => { setActiveConv(c); setMsgView("chat"); }} />
@@ -419,7 +429,7 @@ export default function Pazarche() {
         ) : posting ? (
           <PostForm onSubmit={addListing} onCancel={() => setPosting(false)} defaultName={session?.user?.email?.split("@")[0] || ""} defaultEmail={session?.user?.email || ""} userId={session?.user?.id} />
         ) : detail ? (
-          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} onEdit={() => { setEditing(detail); setDetail(null); }} onToggleSold={toggleSold} onContact={contactSeller} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
+          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} onEdit={() => { setEditing(detail); setDetail(null); }} onToggleSold={toggleSold} onContact={contactSeller} onViewSeller={() => { setProfileUser({ id: detail.user_id, name: detail.seller_name }); setDetail(null); }} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
         ) : (
           <>
             {activeFilters === 0 && !q && (
@@ -603,6 +613,60 @@ function translateAuthError(m) {
 }
 
 /* ---------------- CARD ---------------- */
+function SellerProfile({ profile, listings, onBack, onOpen, favs, onFav }) {
+  const sellerListings = listings.filter((l) => l.user_id === profile.id);
+  const active = sellerListings.filter((l) => !l.sold);
+  const sold = sellerListings.filter((l) => l.sold);
+  // "член от" — датата на най-старата обява
+  const memberSince = sellerListings.length
+    ? new Date(Math.min(...sellerListings.map((l) => new Date(l.created_at).getTime())))
+    : null;
+  const monthsBg = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
+  const initial = (profile.name || "?").trim().charAt(0).toUpperCase();
+
+  return (
+    <div style={{ padding: "20px 0 0" }}>
+      <button onClick={onBack} className="pz-btn"
+        style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", color: "#5c5345", cursor: "pointer", fontWeight: 700, fontSize: 15, marginBottom: 16, padding: "6px 0", minHeight: 44 }}>
+        <ChevronLeft size={19} /> Назад
+      </button>
+
+      <div style={{ background: "#fff", border: "1px solid #e6dcc9", borderRadius: 18, padding: 24, marginBottom: 22, display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+        <div style={{ width: 72, height: 72, borderRadius: 999, background: "#E8A33D", color: "#16130F", display: "grid", placeItems: "center", fontSize: 32, fontWeight: 900, flexShrink: 0 }}>
+          {initial}
+        </div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <h1 style={{ margin: "0 0 6px", fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em" }}>{profile.name}</h1>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14, color: "#5c5345" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Tag size={15} /> {active.length} активни обяви</span>
+            {memberSince && (
+              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <Clock size={15} /> член от {monthsBg[memberSince.getMonth()]} {memberSince.getFullYear()}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <h2 style={{ margin: "0 0 14px", fontSize: 20, fontWeight: 800, letterSpacing: "-0.02em" }}>
+        Обяви на {profile.name} <span style={{ color: "#9c8f7d", fontWeight: 600 }}>· {sellerListings.length}</span>
+      </h2>
+
+      {sellerListings.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "50px 20px", color: "#5c5345", fontWeight: 600 }}>
+          Този продавач няма активни обяви в момента.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(248px, 1fr))", gap: 16 }}>
+          {[...active, ...sold].map((l) => (
+            <Card key={l.id} item={l} fav={favs.includes(l.id)} onFav={() => onFav(l.id)} onOpen={() => onOpen(l)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Card({ item, fav, onFav, onOpen }) {
   const cover = item.photos && item.photos.length > 0 ? item.photos[0] : null;
   const bg = item.photo || "#C9762B";
@@ -644,7 +708,7 @@ function Card({ item, fav, onFav, onOpen }) {
 }
 
 /* ---------------- DETAIL ---------------- */
-function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, onContact, isMobile, isOwner }) {
+function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, onContact, onViewSeller, isMobile, isOwner }) {
   const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
   const photos = item.photos || [];
@@ -699,7 +763,10 @@ function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, on
             </div>
             <div style={{ borderTop: "1px solid #eee3d2", paddingTop: 16, marginTop: 4 }}>
               <div style={{ fontSize: 13, color: "#9c8f7d", fontWeight: 700 }}>Продавач</div>
-              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>{item.seller_name}</div>
+              <button onClick={onViewSeller}
+                style={{ fontSize: 16, fontWeight: 700, marginBottom: 14, background: "none", border: "none", padding: 0, color: "#C9762B", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 3 }}>
+                {item.seller_name}
+              </button>
               {!isOwner && (
                 <button onClick={() => onContact(item)} className="pz-btn"
                   style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 11, padding: "13px", fontWeight: 800, fontSize: 15, marginBottom: 9, cursor: "pointer" }}>
