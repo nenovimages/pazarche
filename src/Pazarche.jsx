@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./supabase";
 import { ConversationList, ChatView, startConversation, getUnreadCount } from "./Messages";
+import imageCompression from "browser-image-compression";
 
 /* ============================================================
    ПАЗАРЧЕ — безплатни обяви (със Supabase: акаунти + обща база)
@@ -846,11 +847,26 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId, mode,
   const uploadAll = async () => {
     const urls = [];
     for (let i = 0; i < photos.length; i++) {
+      setProgress(`Обработка на снимка ${i + 1} от ${photos.length}…`);
+      let file = photos[i].file;
+      // свиване + конвертиране в WebP преди качване
+      try {
+        file = await imageCompression(file, {
+          maxSizeMB: 0.4,
+          maxWidthOrHeight: 1600,
+          fileType: "image/webp",
+          initialQuality: 0.8,
+          useWebWorker: true,
+        });
+      } catch {
+        // ако свиването се провали по някаква причина, качваме оригинала
+        file = photos[i].file;
+      }
       setProgress(`Качване на снимка ${i + 1} от ${photos.length}…`);
-      const { file } = photos[i];
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const isWebp = file.type === "image/webp";
+      const ext = isWebp ? "webp" : (photos[i].file.name.split(".").pop() || "jpg").toLowerCase();
       const path = `${userId}/${Date.now()}-${i}.${ext}`;
-      const { error } = await supabase.storage.from("listing-photos").upload(path, file, { cacheControl: "3600", upsert: false });
+      const { error } = await supabase.storage.from("listing-photos").upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type });
       if (error) throw error;
       const { data } = supabase.storage.from("listing-photos").getPublicUrl(path);
       urls.push(data.publicUrl);
