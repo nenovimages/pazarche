@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Search, MapPin, Heart, Plus, ChevronLeft, Phone, Mail,
-  Tag, Clock, Filter, Trash2, Check, LogOut, User, ImagePlus, X, Pencil
+  Tag, Clock, Filter, Trash2, Check, LogOut, User, ImagePlus, X, Pencil, MessageCircle
 } from "lucide-react";
 import { supabase } from "./supabase";
+import { ConversationList, ChatView, startConversation } from "./Messages";
 
 /* ============================================================
    ПАЗАРЧЕ — безплатни обяви (със Supabase: акаунти + обща база)
@@ -78,6 +79,8 @@ export default function Pazarche() {
   const [editing, setEditing] = useState(null); // listing being edited
   const [authView, setAuthView] = useState(null); // null | "login" | "signup"
   const [showFilters, setShowFilters] = useState(false);
+  const [msgView, setMsgView] = useState(null); // null | "list" | "chat"
+  const [activeConv, setActiveConv] = useState(null);
   const [showMineOnly, setShowMineOnly] = useState(false);
   const [hideSold, setHideSold] = useState(false);
 
@@ -181,6 +184,16 @@ export default function Pazarche() {
     }
   }, []);
 
+  const contactSeller = useCallback(async (listing) => {
+    if (!session) { setAuthView("login"); return; }
+    const res = await startConversation(listing, session.user.id);
+    if (res.id) {
+      setActiveConv({ id: res.id, listings: { title: listing.title } });
+      setDetail(null);
+      setMsgView("chat");
+    }
+  }, [session]);
+
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
     setSession(null);
@@ -244,7 +257,7 @@ export default function Pazarche() {
       {/* HEADER */}
       <header style={{ background: "#16130F", color: "#F4EBDD", position: "sticky", top: 0, zIndex: 40 }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", padding: isMobile ? "11px 14px" : "14px 18px", display: "flex", alignItems: "center", gap: isMobile ? 10 : 18, flexWrap: "wrap" }}>
-          <div onClick={() => { setDetail(null); setPosting(false); setAuthView(null); setEditing(null); }} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
+          <div onClick={() => { setDetail(null); setPosting(false); setAuthView(null); setEditing(null); setMsgView(null); setActiveConv(null); }} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, background: "#E8A33D", display: "grid", placeItems: "center", color: "#16130F", fontWeight: 900, fontSize: 20 }}>П</div>
             <span style={{ fontSize: 23, fontWeight: 800, letterSpacing: "-0.03em" }}>Пазарче</span>
           </div>
@@ -274,6 +287,11 @@ export default function Pazarche() {
                     {session.user.email}
                   </span>
                 )}
+                <button onClick={() => { setMsgView("list"); setActiveConv(null); setDetail(null); setPosting(false); setAuthView(null); setEditing(null); }}
+                  className="pz-btn" aria-label="Съобщения"
+                  style={{ background: msgView ? "#E8A33D" : "transparent", color: msgView ? "#16130F" : "#F4EBDD", border: "1.5px solid", borderColor: msgView ? "#E8A33D" : "#4a4339", borderRadius: 11, padding: "9px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, minHeight: 44 }}>
+                  <MessageCircle size={16} /> {!isMobile && "Съобщения"}
+                </button>
                 <button onClick={logout} className="pz-btn" aria-label="Изход"
                   style={{ background: "transparent", color: "#F4EBDD", border: "1.5px solid #4a4339", borderRadius: 11, padding: "9px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, minHeight: 44 }}>
                   <LogOut size={16} /> {!isMobile && "Изход"}
@@ -303,7 +321,7 @@ export default function Pazarche() {
       </header>
 
       {/* CATEGORY STRIP */}
-      {!detail && !posting && !authView && (
+      {!detail && !posting && !authView && !editing && !msgView && (
         <div style={{ background: "#fff", borderBottom: "1px solid #e6dcc9", position: "sticky", top: isMobile ? 112 : 64, zIndex: 30, overflowX: "auto" }}>
           <div style={{ maxWidth: 1180, margin: "0 auto", padding: "10px 18px", display: "flex", gap: 8 }}>
             {CATEGORIES.map((c) => (
@@ -317,7 +335,11 @@ export default function Pazarche() {
       )}
 
       <main style={{ maxWidth: 1180, margin: "0 auto", padding: "0 18px 60px" }}>
-        {authView ? (
+        {msgView === "chat" && activeConv ? (
+          <ChatView conversation={activeConv} userId={session?.user?.id} onBack={() => { setActiveConv(null); setMsgView("list"); }} />
+        ) : msgView === "list" ? (
+          <ConversationList userId={session?.user?.id} onBack={() => setMsgView(null)} onOpen={(c) => { setActiveConv(c); setMsgView("chat"); }} />
+        ) : authView ? (
           <Auth view={authView} setView={setAuthView} onDone={() => setAuthView(null)} />
         ) : editing ? (
           <PostForm
@@ -332,7 +354,7 @@ export default function Pazarche() {
         ) : posting ? (
           <PostForm onSubmit={addListing} onCancel={() => setPosting(false)} defaultName={session?.user?.email?.split("@")[0] || ""} defaultEmail={session?.user?.email || ""} userId={session?.user?.id} />
         ) : detail ? (
-          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} onEdit={() => { setEditing(detail); setDetail(null); }} onToggleSold={toggleSold} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
+          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} onEdit={() => { setEditing(detail); setDetail(null); }} onToggleSold={toggleSold} onContact={contactSeller} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
         ) : (
           <>
             {activeFilters === 0 && !q && (
@@ -550,7 +572,7 @@ function Card({ item, fav, onFav, onOpen }) {
 }
 
 /* ---------------- DETAIL ---------------- */
-function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, isMobile, isOwner }) {
+function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, onContact, isMobile, isOwner }) {
   const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
   const photos = item.photos || [];
@@ -606,6 +628,12 @@ function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, is
             <div style={{ borderTop: "1px solid #eee3d2", paddingTop: 16, marginTop: 4 }}>
               <div style={{ fontSize: 13, color: "#9c8f7d", fontWeight: 700 }}>Продавач</div>
               <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>{item.seller_name}</div>
+              {!isOwner && (
+                <button onClick={() => onContact(item)} className="pz-btn"
+                  style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 11, padding: "13px", fontWeight: 800, fontSize: 15, marginBottom: 9, cursor: "pointer" }}>
+                  <MessageCircle size={18} /> Съобщение до продавача
+                </button>
+              )}
               <a href={`tel:${item.phone}`} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#16130F", color: "#F4EBDD", textDecoration: "none", borderRadius: 11, padding: "13px", fontWeight: 800, fontSize: 15, marginBottom: 9 }}>
                 <Phone size={18} /> {item.phone}
               </a>
