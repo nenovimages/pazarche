@@ -4,7 +4,7 @@ import {
   Tag, Clock, Filter, Trash2, Check, LogOut, User, ImagePlus, X, Pencil, MessageCircle
 } from "lucide-react";
 import { supabase } from "./supabase";
-import { ConversationList, ChatView, startConversation } from "./Messages";
+import { ConversationList, ChatView, startConversation, getUnreadCount } from "./Messages";
 
 /* ============================================================
    ПАЗАРЧЕ — безплатни обяви (със Supabase: акаунти + обща база)
@@ -81,6 +81,7 @@ export default function Pazarche() {
   const [showFilters, setShowFilters] = useState(false);
   const [msgView, setMsgView] = useState(null); // null | "list" | "chat"
   const [activeConv, setActiveConv] = useState(null);
+  const [unread, setUnread] = useState(0);
   const [showMineOnly, setShowMineOnly] = useState(false);
   const [hideSold, setHideSold] = useState(false);
 
@@ -121,6 +122,18 @@ export default function Pazarche() {
   }, []);
 
   useEffect(() => { loadListings(); }, [loadListings]);
+
+  const refreshUnread = useCallback(() => {
+    if (session?.user?.id) getUnreadCount(session.user.id).then(setUnread);
+    else setUnread(0);
+  }, [session]);
+
+  useEffect(() => {
+    refreshUnread();
+    if (!session) return;
+    const t = setInterval(refreshUnread, 20000);
+    return () => clearInterval(t);
+  }, [refreshUnread, session]);
 
   const addListing = useCallback(async (form, photoUrls) => {
     if (!session) { setAuthView("login"); return { error: "Трябва да влезеш в профила си." }; }
@@ -289,8 +302,13 @@ export default function Pazarche() {
                 )}
                 <button onClick={() => { setMsgView("list"); setActiveConv(null); setDetail(null); setPosting(false); setAuthView(null); setEditing(null); }}
                   className="pz-btn" aria-label="Съобщения"
-                  style={{ background: msgView ? "#E8A33D" : "transparent", color: msgView ? "#16130F" : "#F4EBDD", border: "1.5px solid", borderColor: msgView ? "#E8A33D" : "#4a4339", borderRadius: 11, padding: "9px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, minHeight: 44 }}>
+                  style={{ position: "relative", background: msgView ? "#E8A33D" : "transparent", color: msgView ? "#16130F" : "#F4EBDD", border: "1.5px solid", borderColor: msgView ? "#E8A33D" : "#4a4339", borderRadius: 11, padding: "9px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, minHeight: 44 }}>
                   <MessageCircle size={16} /> {!isMobile && "Съобщения"}
+                  {unread > 0 && (
+                    <span style={{ position: "absolute", top: -6, right: -6, minWidth: 20, height: 20, padding: "0 5px", background: "#cc3333", color: "#fff", borderRadius: 999, fontSize: 12, fontWeight: 800, display: "grid", placeItems: "center", border: "2px solid #16130F" }}>
+                      {unread}
+                    </span>
+                  )}
                 </button>
                 <button onClick={logout} className="pz-btn" aria-label="Изход"
                   style={{ background: "transparent", color: "#F4EBDD", border: "1.5px solid #4a4339", borderRadius: 11, padding: "9px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 14, minHeight: 44 }}>
@@ -336,7 +354,7 @@ export default function Pazarche() {
 
       <main style={{ maxWidth: 1180, margin: "0 auto", padding: "0 18px 60px" }}>
         {msgView === "chat" && activeConv ? (
-          <ChatView conversation={activeConv} userId={session?.user?.id} onBack={() => { setActiveConv(null); setMsgView("list"); }} />
+          <ChatView conversation={activeConv} userId={session?.user?.id} onBack={() => { setActiveConv(null); setMsgView("list"); }} onRead={refreshUnread} />
         ) : msgView === "list" ? (
           <ConversationList userId={session?.user?.id} onBack={() => setMsgView(null)} onOpen={(c) => { setActiveConv(c); setMsgView("chat"); }} />
         ) : authView ? (

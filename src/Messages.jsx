@@ -33,6 +33,34 @@ export async function startConversation(listing, buyerId) {
   return { id: data.id };
 }
 
+/* Брой разговори с непрочетени съобщения за този потребител */
+export async function getUnreadCount(userId) {
+  const { data: convs, error } = await supabase
+    .from("conversations")
+    .select("id, buyer_id, seller_id, buyer_last_read, seller_last_read, last_message_at");
+  if (error || !convs) return 0;
+  let count = 0;
+  for (const c of convs) {
+    const lastRead = c.buyer_id === userId ? c.buyer_last_read : c.seller_last_read;
+    // има ли по-ново съобщение от последното четене, и то не от мен?
+    const { data: newer } = await supabase
+      .from("messages")
+      .select("id")
+      .eq("conversation_id", c.id)
+      .neq("sender_id", userId)
+      .gt("created_at", lastRead || "1970-01-01")
+      .limit(1);
+    if (newer && newer.length > 0) count++;
+  }
+  return count;
+}
+
+/* Маркирай разговор като прочетен от този потребител */
+async function markRead(conv, userId) {
+  const field = conv.buyer_id === userId ? "buyer_last_read" : "seller_last_read";
+  await supabase.from("conversations").update({ [field]: new Date().toISOString() }).eq("id", conv.id);
+}
+
 /* ---------- Списък с разговори ---------- */
 export function ConversationList({ userId, onOpen, onBack }) {
   const [convs, setConvs] = useState([]);
@@ -94,7 +122,7 @@ export function ConversationList({ userId, onOpen, onBack }) {
 }
 
 /* ---------- Изглед на един разговор (чат) ---------- */
-export function ChatView({ conversation, listing, userId, onBack }) {
+export function ChatView({ conversation, listing, userId, onBack, onRead }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -110,7 +138,17 @@ export function ChatView({ conversation, listing, userId, onBack }) {
       .order("created_at", { ascending: true });
     if (!error && data) setMessages(data);
     setLoading(false);
-  }, [convId]);
+    // маркирай като прочетен (нужни са buyer_id/seller_id)
+    const { data: full } = await supabase
+      .from("conversations")
+      .select("id, buyer_id, seller_id")
+      .eq("id", convId)
+      .single();
+    if (full) {
+      await markRead(full, userId);
+      onRead && onRead();
+    }
+  }, [convId, userId, onRead]);
 
   useEffect(() => { load(); }, [load]);
 
