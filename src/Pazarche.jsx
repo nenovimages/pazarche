@@ -68,6 +68,29 @@ function distanceKm(a, b) {
 
 const COND = ["Ново", "Като ново", "Употребявано", "За части"];
 
+// Специфични полета по категория (в стил Gumtree)
+// type: "select" → падащо меню с options; "number" → число с suffix; "text" → текст
+const CAT_FIELDS = {
+  avto: [
+    { key: "brand", label: "Марка", type: "text", placeholder: "напр. Volkswagen" },
+    { key: "model", label: "Модел", type: "text", placeholder: "напр. Golf" },
+    { key: "year", label: "Година", type: "number", placeholder: "напр. 2017" },
+    { key: "mileage", label: "Пробег", type: "number", suffix: "км", placeholder: "напр. 142000" },
+    { key: "fuel", label: "Гориво", type: "select", options: ["Бензин", "Дизел", "Газ/Бензин", "Хибрид", "Електрически"] },
+    { key: "gearbox", label: "Скоростна кутия", type: "select", options: ["Ръчна", "Автоматична"] },
+  ],
+  imoti: [
+    { key: "ptype", label: "Тип имот", type: "select", options: ["Едностаен", "Двустаен", "Тристаен", "Четиристаен", "Многостаен", "Къща", "Парцел", "Офис", "Магазин"] },
+    { key: "area", label: "Квадратура", type: "number", suffix: "кв.м", placeholder: "напр. 68" },
+    { key: "floor", label: "Етаж", type: "text", placeholder: "напр. 4 от 6" },
+    { key: "construction", label: "Строителство", type: "select", options: ["Тухла", "Панел", "ЕПК", "Гредоред", "Друго"] },
+  ],
+  tehnika: [
+    { key: "brand", label: "Марка", type: "text", placeholder: "напр. Apple" },
+    { key: "warranty", label: "Гаранция", type: "select", options: ["С гаранция", "Без гаранция"] },
+  ],
+};
+
 const fmtPrice = (p) => p === 0 ? "По договаряне" : new Intl.NumberFormat("bg-BG").format(p) + " лв.";
 const fmtTime = (iso) => {
   const t = new Date(iso).getTime();
@@ -187,6 +210,7 @@ export default function Pazarche() {
       seller_name: form.seller_name,
       photo: form.photo,
       photos: photoUrls || [],
+      attrs: form.attrs || {},
     };
     const { data, error } = await supabase.from("listings").insert(row).select().single();
     if (error) return { error: error.message };
@@ -217,6 +241,7 @@ export default function Pazarche() {
       email: form.email || session.user.email,
       seller_name: form.seller_name,
       photos: photoUrls || [],
+      attrs: form.attrs || {},
     };
     const { data, error } = await supabase.from("listings").update(patch).eq("id", id).select().single();
     if (error) return { error: error.message };
@@ -748,6 +773,21 @@ function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, on
               {item.sold && <span style={{ position: "absolute", top: 14, right: 14, background: "#a04030", color: "#fff", padding: "6px 14px", borderRadius: 999, fontWeight: 800, fontSize: 14 }}>ПРОДАДЕНО</span>}
             </div>
           )}
+          {CAT_FIELDS[item.cat] && item.attrs && Object.keys(item.attrs).some((k) => item.attrs[k]) && (
+            <div style={{ background: "#fff", borderRadius: 16, padding: 22, marginTop: 16, border: "1px solid #e6dcc9" }}>
+              <h3 style={{ margin: "0 0 14px", fontSize: 17, fontWeight: 800 }}>Характеристики</h3>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "10px 24px" }}>
+                {CAT_FIELDS[item.cat].filter((fld) => item.attrs[fld.key]).map((fld) => (
+                  <div key={fld.key} style={{ display: "flex", justifyContent: "space-between", gap: 12, paddingBottom: 8, borderBottom: "1px solid #f0e8d8" }}>
+                    <span style={{ color: "#9c8f7d", fontSize: 14, fontWeight: 600 }}>{fld.label}</span>
+                    <span style={{ color: "#16130F", fontSize: 14, fontWeight: 700, textAlign: "right" }}>
+                      {item.attrs[fld.key]}{fld.suffix ? ` ${fld.suffix}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ background: "#fff", borderRadius: 16, padding: 22, marginTop: 16, border: "1px solid #e6dcc9" }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 800 }}>Описание</h3>
             <p style={{ margin: 0, lineHeight: 1.65, color: "#3a342b", whiteSpace: "pre-wrap" }}>{item.descr}</p>
@@ -815,8 +855,8 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId, mode,
   const isEdit = mode === "edit";
   const [f, setF] = useState(
     isEdit
-      ? { title: existing.title, cat: existing.cat, price: existing.price === 0 ? "" : String(existing.price), city: existing.city, cond: existing.cond, descr: existing.descr, seller_name: existing.seller_name, phone: existing.phone, email: existing.email || "", photo: existing.photo || "#E8A33D" }
-      : { title: "", cat: "tehnika", price: "", city: "София", cond: "Употребявано", descr: "", seller_name: defaultName, phone: "", email: defaultEmail, photo: "#E8A33D" }
+      ? { title: existing.title, cat: existing.cat, price: existing.price === 0 ? "" : String(existing.price), city: existing.city, cond: existing.cond, descr: existing.descr, seller_name: existing.seller_name, phone: existing.phone, email: existing.email || "", photo: existing.photo || "#E8A33D", attrs: existing.attrs || {} }
+      : { title: "", cat: "tehnika", price: "", city: "София", cond: "Употребявано", descr: "", seller_name: defaultName, phone: "", email: defaultEmail, photo: "#E8A33D", attrs: {} }
   );
   const [existingUrls, setExistingUrls] = useState(isEdit && existing.photos ? existing.photos : []);
   const [photos, setPhotos] = useState([]); // нови: { file, preview }
@@ -825,6 +865,7 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId, mode,
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const setAttr = (k, v) => setF((p) => ({ ...p, attrs: { ...p.attrs, [k]: v } }));
   const MAX_PHOTOS = 8;
   const totalPhotos = existingUrls.length + photos.length;
 
@@ -933,6 +974,37 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId, mode,
             </select>
           </Field>
         </div>
+
+        {CAT_FIELDS[f.cat] && (
+          <div style={{ background: "#faf4ea", border: "1px solid #eee3d2", borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#C9762B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
+              Детайли за {CATEGORIES.find((c) => c.id === f.cat)?.label.toLowerCase()}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14 }}>
+              {CAT_FIELDS[f.cat].map((fld) => (
+                <Field key={fld.key} label={fld.label}>
+                  {fld.type === "select" ? (
+                    <select value={f.attrs[fld.key] || ""} onChange={(e) => setAttr(fld.key, e.target.value)} style={inp}>
+                      <option value="">— избери —</option>
+                      {fld.options.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type={fld.type === "number" ? "number" : "text"}
+                        value={f.attrs[fld.key] || ""}
+                        onChange={(e) => setAttr(fld.key, e.target.value)}
+                        placeholder={fld.placeholder || ""}
+                        style={{ ...inp, paddingRight: fld.suffix ? 44 : 12 }}
+                      />
+                      {fld.suffix && <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "#9c8f7d", fontSize: 14, fontWeight: 600 }}>{fld.suffix}</span>}
+                    </div>
+                  )}
+                </Field>
+              ))}
+            </div>
+          </div>
+        )}
 
         <Field label={`Снимки (до ${MAX_PHOTOS}) — първата е корица`}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
