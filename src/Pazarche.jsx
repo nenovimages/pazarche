@@ -31,6 +31,40 @@ const CITIES = [
   "Стара Загора", "Плевен", "Велико Търново", "Благоевград", "Хасково",
 ];
 
+// Координати на градовете (ширина, дължина) — за търсене по близост
+const CITY_COORDS = {
+  "София": [42.6977, 23.3219],
+  "Пловдив": [42.1354, 24.7453],
+  "Варна": [43.2141, 27.9147],
+  "Бургас": [42.5048, 27.4626],
+  "Русе": [43.8356, 25.9657],
+  "Стара Загора": [42.4258, 25.6345],
+  "Плевен": [43.4170, 24.6067],
+  "Велико Търново": [43.0757, 25.6172],
+  "Благоевград": [42.0117, 23.0947],
+  "Хасково": [41.9344, 25.5554],
+};
+
+const RADIUS_OPTIONS = [
+  { v: 0, label: "Без значение" },
+  { v: 30, label: "до 30 км" },
+  { v: 60, label: "до 60 км" },
+  { v: 100, label: "до 100 км" },
+  { v: 200, label: "до 200 км" },
+];
+
+// Разстояние между две точки в км (формула на хаверсин)
+function distanceKm(a, b) {
+  if (!a || !b) return Infinity;
+  const R = 6371;
+  const dLat = (b[0] - a[0]) * Math.PI / 180;
+  const dLon = (b[1] - a[1]) * Math.PI / 180;
+  const lat1 = a[0] * Math.PI / 180;
+  const lat2 = b[0] * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 const COND = ["Ново", "Като ново", "Употребявано", "За части"];
 
 const fmtPrice = (p) => p === 0 ? "По договаряне" : new Intl.NumberFormat("bg-BG").format(p) + " лв.";
@@ -68,6 +102,7 @@ export default function Pazarche() {
 
   const [cat, setCat] = useState("all");
   const [city, setCity] = useState("Цяла България");
+  const [radius, setRadius] = useState(0);
   const [q, setQ] = useState("");
   const [minP, setMinP] = useState("");
   const [maxP, setMaxP] = useState("");
@@ -213,10 +248,19 @@ export default function Pazarche() {
   }, []);
 
   const filtered = useMemo(() => {
+    const originCoord = city !== "Цяла България" ? CITY_COORDS[city] : null;
     let r = listings.filter((l) => {
       if (showMineOnly && l.user_id !== session?.user?.id) return false;
       if (cat !== "all" && l.cat !== cat) return false;
-      if (city !== "Цяла България" && l.city !== city) return false;
+      // локация: с радиус → по разстояние; без радиус → точен град
+      if (city !== "Цяла България") {
+        if (radius > 0 && originCoord) {
+          const d = distanceKm(originCoord, CITY_COORDS[l.city]);
+          if (d > radius) return false;
+        } else if (l.city !== city) {
+          return false;
+        }
+      }
       if (q && !(`${l.title} ${l.descr}`.toLowerCase().includes(q.toLowerCase()))) return false;
       if (minP && l.price < +minP) return false;
       if (maxP && l.price > +maxP) return false;
@@ -224,19 +268,22 @@ export default function Pazarche() {
       if (hideSold && l.sold) return false;
       return true;
     });
-    r = [...r].sort((a, b) =>
-      sort === "new" ? new Date(b.created_at) - new Date(a.created_at)
-      : sort === "low" ? a.price - b.price
-      : b.price - a.price
-    );
+    r = [...r].sort((a, b) => {
+      if (sort === "near" && originCoord) {
+        return distanceKm(originCoord, CITY_COORDS[a.city]) - distanceKm(originCoord, CITY_COORDS[b.city]);
+      }
+      return sort === "low" ? a.price - b.price
+        : sort === "high" ? b.price - a.price
+        : new Date(b.created_at) - new Date(a.created_at);
+    });
     return r;
-  }, [listings, cat, city, q, minP, maxP, sort, showFavsOnly, favs, showMineOnly, session, hideSold]);
+  }, [listings, cat, city, radius, q, minP, maxP, sort, showFavsOnly, favs, showMineOnly, session, hideSold]);
 
   const myCount = useMemo(() =>
     session ? listings.filter((l) => l.user_id === session.user.id).length : 0,
   [listings, session]);
 
-  const activeFilters = (cat !== "all") + (city !== "Цяла България") + (!!minP) + (!!maxP) + showFavsOnly;
+  const activeFilters = (cat !== "all") + (city !== "Цяла България") + (radius > 0) + (!!minP) + (!!maxP) + showFavsOnly;
 
   const goPost = () => {
     if (!session) { setAuthView("signup"); setDetail(null); return; }
@@ -402,14 +449,21 @@ export default function Pazarche() {
                 <option value="new">Най-нови</option>
                 <option value="low">Цена ↑</option>
                 <option value="high">Цена ↓</option>
+                {city !== "Цяла България" && <option value="near">По близост</option>}
               </select>
             </div>
 
             {showFilters && (
               <div style={{ background: "#fff", border: "1px solid #e6dcc9", borderRadius: 14, padding: 18, marginBottom: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
                 <Field label="Град">
-                  <select value={city} onChange={(e) => setCity(e.target.value)} style={inp}>
+                  <select value={city} onChange={(e) => { setCity(e.target.value); if (e.target.value === "Цяла България") setRadius(0); }} style={inp}>
                     {CITIES.map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <Field label="Разстояние">
+                  <select value={radius} onChange={(e) => setRadius(+e.target.value)} disabled={city === "Цяла България"}
+                    style={{ ...inp, opacity: city === "Цяла България" ? 0.5 : 1, cursor: city === "Цяла България" ? "not-allowed" : "pointer" }}>
+                    {RADIUS_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
                   </select>
                 </Field>
                 <Field label="Цена от">
@@ -423,7 +477,7 @@ export default function Pazarche() {
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#5c5345" }}>Скрий продадените</span>
                 </label>
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button onClick={() => { setCity("Цяла България"); setMinP(""); setMaxP(""); setCat("all"); setShowFavsOnly(false); setHideSold(false); }}
+                  <button onClick={() => { setCity("Цяла България"); setRadius(0); setMinP(""); setMaxP(""); setCat("all"); setShowFavsOnly(false); setHideSold(false); }}
                     style={{ padding: "11px 14px", borderRadius: 10, border: "1.5px solid #C9762B", background: "#fff", color: "#C9762B", fontWeight: 700, cursor: "pointer", width: "100%" }}>
                     Изчисти филтрите
                   </button>
