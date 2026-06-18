@@ -61,6 +61,50 @@ async function markRead(conv, userId) {
   await supabase.from("conversations").update({ [field]: new Date().toISOString() }).eq("id", conv.id);
 }
 
+/* Зареди отзивите за продавач + среден рейтинг */
+export async function getReviews(sellerId) {
+  const { data, error } = await supabase
+    .from("reviews")
+    .select("*")
+    .eq("seller_id", sellerId)
+    .order("created_at", { ascending: false });
+  if (error || !data) return { reviews: [], avg: 0, count: 0 };
+  const count = data.length;
+  const avg = count ? data.reduce((s, r) => s + r.rating, 0) / count : 0;
+  return { reviews: data, avg, count };
+}
+
+/* Може ли този потребител да оцени този продавач?
+   (има разговор с него, не е самият той, и още не е оставил отзив) */
+export async function canReview(sellerId, userId) {
+  if (!userId || userId === sellerId) return false;
+  const { data: conv } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("buyer_id", userId)
+    .eq("seller_id", sellerId)
+    .limit(1);
+  if (!conv || conv.length === 0) return false;
+  const { data: existing } = await supabase
+    .from("reviews")
+    .select("id")
+    .eq("seller_id", sellerId)
+    .eq("reviewer_id", userId)
+    .limit(1);
+  return !existing || existing.length === 0;
+}
+
+/* Запази отзив */
+export async function submitReview(sellerId, userId, rating, comment) {
+  const { data, error } = await supabase
+    .from("reviews")
+    .insert({ seller_id: sellerId, reviewer_id: userId, rating, comment: comment || null })
+    .select()
+    .single();
+  if (error) return { error: error.message };
+  return { review: data };
+}
+
 /* ---------- Списък с разговори ---------- */
 export function ConversationList({ userId, onOpen, onBack }) {
   const [convs, setConvs] = useState([]);
