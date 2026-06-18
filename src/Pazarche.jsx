@@ -100,7 +100,9 @@ const fmtTime = (iso) => {
   const h = Math.floor(m / 60);
   if (h < 24) return `преди ${h} ч`;
   const d = Math.floor(h / 24);
-  return `преди ${d} дни`;
+  if (d < 30) return `преди ${d} ${d === 1 ? "ден" : "дни"}`;
+  const mo = Math.floor(d / 30);
+  return `преди ${mo} ${mo === 1 ? "месец" : "месеца"}`;
 };
 
 function useIsMobile() {
@@ -724,9 +726,9 @@ function Card({ item, fav, onFav, onOpen }) {
       <div style={{ padding: 14 }}>
         <div style={{ fontSize: 19, fontWeight: 800, color: "#C9762B", letterSpacing: "-0.02em" }}>{fmtPrice(item.price)}</div>
         <h3 style={{ margin: "4px 0 8px", fontSize: 15.5, fontWeight: 600, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: 40 }}>{item.title}</h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#9c8f7d" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><MapPin size={13} /> {item.city}</span>
-          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><Clock size={13} /> {fmtTime(item.created_at)}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#9c8f7d", whiteSpace: "nowrap" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 3, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}><MapPin size={13} style={{ flexShrink: 0 }} /> {item.city}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}><Clock size={13} /> {fmtTime(item.created_at)}</span>
         </div>
       </div>
     </article>
