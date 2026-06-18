@@ -599,15 +599,25 @@ export default function Pazarche() {
               <div style={{ textAlign: "center", padding: "70px 20px", color: "#5c5345" }}>
                 <div style={{ fontSize: 44, marginBottom: 12 }}>🔍</div>
                 <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 6 }}>Няма намерени обяви</div>
-                <p style={{ margin: "0 0 18px" }}>Опитай с друга категория или махни част от филтрите.</p>
-                <button onClick={goPost} style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 10, padding: "11px 18px", fontWeight: 800, cursor: "pointer" }}>
-                  Добави обява
-                </button>
+                <p style={{ margin: "0 0 18px" }}>
+                  {activeFilters > 0 || q ? "Опитай да разшириш търсенето или махни част от филтрите." : "Бъди първият, който публикува обява тук!"}
+                </p>
+                <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                  {(activeFilters > 0 || q) && (
+                    <button onClick={() => { setCity("Цяла България"); setRadius(0); setMinP(""); setMaxP(""); setCat("all"); setShowFavsOnly(false); setHideSold(false); setAttrFilters({}); setQ(""); }}
+                      style={{ background: "#fff", color: "#C9762B", border: "1.5px solid #C9762B", borderRadius: 10, padding: "11px 18px", fontWeight: 800, cursor: "pointer" }}>
+                      Изчисти филтрите
+                    </button>
+                  )}
+                  <button onClick={goPost} style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 10, padding: "11px 18px", fontWeight: 800, cursor: "pointer" }}>
+                    Добави обява
+                  </button>
+                </div>
               </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(auto-fill, minmax(248px, 1fr))", gap: isMobile ? 10 : 16 }}>
                 {filtered.map((l) => (
-                  <Card key={l.id} item={l} fav={favs.includes(l.id)} onFav={() => toggleFav(l.id)} onOpen={() => setDetail(l)} />
+                  <Card key={l.id} item={l} fav={favs.includes(l.id)} onFav={() => toggleFav(l.id)} onOpen={() => setDetail(l)} rating={sellerRatings[l.user_id]} />
                 ))}
               </div>
             )}
@@ -862,7 +872,7 @@ function SellerProfile({ profile, listings, onBack, onOpen, favs, onFav, userId 
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(248px, 1fr))", gap: 16 }}>
           {[...active, ...sold].map((l) => (
-            <Card key={l.id} item={l} fav={favs.includes(l.id)} onFav={() => onFav(l.id)} onOpen={() => onOpen(l)} />
+            <Card key={l.id} item={l} fav={favs.includes(l.id)} onFav={() => onFav(l.id)} onOpen={() => onOpen(l)} rating={rCount > 0 ? { avg, count: rCount } : null} />
           ))}
         </div>
       )}
@@ -870,7 +880,7 @@ function SellerProfile({ profile, listings, onBack, onOpen, favs, onFav, userId 
   );
 }
 
-function Card({ item, fav, onFav, onOpen }) {
+function Card({ item, fav, onFav, onOpen, rating }) {
   const cover = item.photos && item.photos.length > 0 ? item.photos[0] : null;
   const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
@@ -905,6 +915,13 @@ function Card({ item, fav, onFav, onOpen }) {
           <span style={{ display: "flex", alignItems: "center", gap: 3, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}><MapPin size={13} style={{ flexShrink: 0 }} /> {item.city}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}><Clock size={13} /> {fmtTime(item.created_at)}</span>
         </div>
+        {rating && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 7 }}>
+            <Star size={13} style={{ fill: "#E8A33D", color: "#E8A33D" }} />
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: "#5c5345" }}>{rating.avg.toFixed(1)}</span>
+            <span style={{ fontSize: 12.5, color: "#9c8f7d" }}>({rating.count})</span>
+          </div>
+        )}
       </div>
     </article>
   );
