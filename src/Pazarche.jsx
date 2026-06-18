@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Search, MapPin, Heart, Plus, ChevronLeft, Phone, Mail,
-  Tag, Clock, Filter, Trash2, Check, LogOut, User, ImagePlus, X, Pencil, MessageCircle
+  Tag, Clock, Filter, Trash2, Check, LogOut, User, ImagePlus, X, Pencil, MessageCircle, Star
 } from "lucide-react";
 import { supabase } from "./supabase";
-import { ConversationList, ChatView, startConversation, getUnreadCount } from "./Messages";
+import { ConversationList, ChatView, startConversation, getUnreadCount, getReviews, canReview, submitReview } from "./Messages";
 import imageCompression from "browser-image-compression";
 
 /* ============================================================
@@ -437,6 +437,7 @@ export default function Pazarche() {
             onOpen={(l) => { setProfileUser(null); setDetail(l); }}
             favs={favs}
             onFav={toggleFav}
+            userId={session?.user?.id}
           />
         ) : msgView === "chat" && activeConv ? (
           <ChatView conversation={activeConv} userId={session?.user?.id} onBack={() => { setActiveConv(null); setMsgView("list"); }} onRead={refreshUnread} />
@@ -641,7 +642,26 @@ function translateAuthError(m) {
 }
 
 /* ---------------- CARD ---------------- */
-function SellerProfile({ profile, listings, onBack, onOpen, favs, onFav }) {
+function Stars({ value, size = 16, onPick }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 1 }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star
+          key={n}
+          size={size}
+          onClick={onPick ? () => onPick(n) : undefined}
+          style={{
+            cursor: onPick ? "pointer" : "default",
+            fill: n <= Math.round(value) ? "#E8A33D" : "none",
+            color: n <= Math.round(value) ? "#E8A33D" : "#cdbfa8",
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function SellerProfile({ profile, listings, onBack, onOpen, favs, onFav, userId }) {
   const sellerListings = listings.filter((l) => l.user_id === profile.id);
   const active = sellerListings.filter((l) => !l.sold);
   const sold = sellerListings.filter((l) => l.sold);
@@ -651,6 +671,35 @@ function SellerProfile({ profile, listings, onBack, onOpen, favs, onFav }) {
     : null;
   const monthsBg = ["януари", "февруари", "март", "април", "май", "юни", "юли", "август", "септември", "октомври", "ноември", "декември"];
   const initial = (profile.name || "?").trim().charAt(0).toUpperCase();
+
+  const [reviews, setReviews] = useState([]);
+  const [avg, setAvg] = useState(0);
+  const [rCount, setRCount] = useState(0);
+  const [mayReview, setMayReview] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [myRating, setMyRating] = useState(5);
+  const [myComment, setMyComment] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const loadReviews = useCallback(async () => {
+    const { reviews, avg, count } = await getReviews(profile.id);
+    setReviews(reviews); setAvg(avg); setRCount(count);
+    setMayReview(await canReview(profile.id, userId));
+  }, [profile.id, userId]);
+
+  useEffect(() => { loadReviews(); }, [loadReviews]);
+
+  const saveReview = async () => {
+    setSaving(true);
+    const res = await submitReview(profile.id, userId, myRating, myComment.trim());
+    setSaving(false);
+    if (!res.error) {
+      setShowForm(false); setMyComment(""); setMyRating(5);
+      loadReviews();
+    } else {
+      alert("Грешка: " + res.error);
+    }
+  };
 
   return (
     <div style={{ padding: "20px 0 0" }}>
@@ -665,7 +714,12 @@ function SellerProfile({ profile, listings, onBack, onOpen, favs, onFav }) {
         </div>
         <div style={{ flex: 1, minWidth: 200 }}>
           <h1 style={{ margin: "0 0 6px", fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em" }}>{profile.name}</h1>
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14, color: "#5c5345" }}>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14, color: "#5c5345", alignItems: "center" }}>
+            {rCount > 0 && (
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Stars value={avg} size={16} /> <strong style={{ color: "#16130F" }}>{avg.toFixed(1)}</strong> ({rCount})
+              </span>
+            )}
             <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Tag size={15} /> {active.length} активни обяви</span>
             {memberSince && (
               <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -674,6 +728,58 @@ function SellerProfile({ profile, listings, onBack, onOpen, favs, onFav }) {
             )}
           </div>
         </div>
+      </div>
+
+      <div style={{ background: "#fff", border: "1px solid #e6dcc9", borderRadius: 18, padding: 24, marginBottom: 22 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: reviews.length || mayReview ? 16 : 0 }}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, letterSpacing: "-0.02em" }}>
+            Отзиви {rCount > 0 && <span style={{ color: "#9c8f7d", fontWeight: 600 }}>· {rCount}</span>}
+          </h2>
+          {mayReview && !showForm && (
+            <button onClick={() => setShowForm(true)} className="pz-btn"
+              style={{ background: "#16130F", color: "#F4EBDD", border: "none", borderRadius: 10, padding: "9px 16px", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
+              Остави отзив
+            </button>
+          )}
+        </div>
+
+        {showForm && (
+          <div style={{ background: "#faf4ea", border: "1px solid #eee3d2", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#5c5345", marginBottom: 6 }}>Твоята оценка</div>
+              <Stars value={myRating} size={28} onPick={setMyRating} />
+            </div>
+            <textarea value={myComment} onChange={(e) => setMyComment(e.target.value)} rows={3}
+              placeholder="Сподели опита си с този продавач (по избор)…"
+              style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border: "1.5px solid #e6dcc9", fontSize: 14, background: "#fff", color: "#16130F", resize: "vertical" }} />
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button onClick={saveReview} disabled={saving} className="pz-btn"
+                style={{ background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 800, fontSize: 14, cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1 }}>
+                {saving ? "Запазване…" : "Изпрати отзив"}
+              </button>
+              <button onClick={() => setShowForm(false)} className="pz-btn"
+                style={{ background: "none", color: "#5c5345", border: "1.5px solid #e6dcc9", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                Отказ
+              </button>
+            </div>
+          </div>
+        )}
+
+        {reviews.length === 0 ? (
+          <p style={{ margin: 0, color: "#9c8f7d", fontSize: 14 }}>Този продавач още няма отзиви.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 14 }}>
+            {reviews.map((r) => (
+              <div key={r.id} style={{ borderBottom: "1px solid #f0e8d8", paddingBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                  <Stars value={r.rating} size={14} />
+                  <span style={{ fontSize: 12.5, color: "#9c8f7d" }}>преди {Math.max(1, Math.floor((Date.now() - new Date(r.created_at)) / 86400000))} дни</span>
+                </div>
+                {r.comment && <p style={{ margin: 0, fontSize: 14.5, color: "#3a342b", lineHeight: 1.5 }}>{r.comment}</p>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <h2 style={{ margin: "0 0 14px", fontSize: 20, fontWeight: 800, letterSpacing: "-0.02em" }}>
@@ -752,8 +858,8 @@ function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, on
         <div>
           {hasPhotos ? (
             <div>
-              <div style={{ height: isMobile ? 280 : 420, background: "#eee", borderRadius: 18, overflow: "hidden", position: "relative" }}>
-                <img src={photos[active]} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover", filter: item.sold ? "grayscale(0.7) brightness(0.85)" : "none" }} />
+              <div style={{ height: isMobile ? 280 : 500, background: "#eee", borderRadius: 18, overflow: "hidden", position: "relative" }}>
+                <img src={photos[active]} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#16130F", filter: item.sold ? "grayscale(0.7) brightness(0.85)" : "none" }} />
                 <span style={{ position: "absolute", top: 14, left: 14, background: "rgba(244,235,221,.95)", padding: "5px 12px", borderRadius: 999, fontWeight: 700, fontSize: 13 }}>{catObj?.label}</span>
                 {item.sold && <span style={{ position: "absolute", top: 14, right: 14, background: "#a04030", color: "#fff", padding: "6px 14px", borderRadius: 999, fontWeight: 800, fontSize: 14 }}>ПРОДАДЕНО</span>}
               </div>
@@ -895,10 +1001,9 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId, mode,
       // свиване + конвертиране в WebP преди качване
       try {
         file = await imageCompression(file, {
-          maxSizeMB: 0.4,
-          maxWidthOrHeight: 1600,
+          maxWidthOrHeight: 2048,
           fileType: "image/webp",
-          initialQuality: 0.8,
+          initialQuality: 0.85,
           useWebWorker: true,
         });
       } catch {
