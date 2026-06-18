@@ -146,6 +146,8 @@ export default function Pazarche() {
   const [profileUser, setProfileUser] = useState(null); // { id, name } на разглеждан продавач
   const [showMineOnly, setShowMineOnly] = useState(false);
   const [hideSold, setHideSold] = useState(false);
+  const [attrFilters, setAttrFilters] = useState({}); // напр. { yearMin, yearMax, mileageMax, areaMin, areaMax, fuel }
+  const [sellerRatings, setSellerRatings] = useState({}); // { userId: {avg, count} }
 
   // ---- AUTH ----
   useEffect(() => {
@@ -183,7 +185,21 @@ export default function Pazarche() {
     setLoadingList(false);
   }, []);
 
-  useEffect(() => { loadListings(); }, [loadListings]);
+  const loadRatings = useCallback(async () => {
+    const { data } = await supabase.from("reviews").select("seller_id, rating");
+    if (!data) return;
+    const map = {};
+    for (const r of data) {
+      if (!map[r.seller_id]) map[r.seller_id] = { sum: 0, n: 0 };
+      map[r.seller_id].sum += r.rating;
+      map[r.seller_id].n += 1;
+    }
+    const out = {};
+    for (const id in map) out[id] = { avg: map[id].sum / map[id].n, count: map[id].n };
+    setSellerRatings(out);
+  }, []);
+
+  useEffect(() => { loadListings(); loadRatings(); }, [loadListings, loadRatings]);
 
   const refreshUnread = useCallback(() => {
     if (session?.user?.id) getUnreadCount(session.user.id).then(setUnread);
@@ -295,6 +311,20 @@ export default function Pazarche() {
       if (maxP && l.price > +maxP) return false;
       if (showFavsOnly && !favs.includes(l.id)) return false;
       if (hideSold && l.sold) return false;
+      // филтри по специфични полета (само при избрана категория с такива полета)
+      const a = l.attrs || {};
+      if (cat === "avto") {
+        if (attrFilters.yearMin && (!a.year || +a.year < +attrFilters.yearMin)) return false;
+        if (attrFilters.yearMax && (!a.year || +a.year > +attrFilters.yearMax)) return false;
+        if (attrFilters.mileageMax && (!a.mileage || +a.mileage > +attrFilters.mileageMax)) return false;
+        if (attrFilters.fuel && a.fuel !== attrFilters.fuel) return false;
+        if (attrFilters.gearbox && a.gearbox !== attrFilters.gearbox) return false;
+      }
+      if (cat === "imoti") {
+        if (attrFilters.areaMin && (!a.area || +a.area < +attrFilters.areaMin)) return false;
+        if (attrFilters.areaMax && (!a.area || +a.area > +attrFilters.areaMax)) return false;
+        if (attrFilters.ptype && a.ptype !== attrFilters.ptype) return false;
+      }
       return true;
     });
     r = [...r].sort((a, b) => {
@@ -306,13 +336,14 @@ export default function Pazarche() {
         : new Date(b.created_at) - new Date(a.created_at);
     });
     return r;
-  }, [listings, cat, city, radius, q, minP, maxP, sort, showFavsOnly, favs, showMineOnly, session, hideSold]);
+  }, [listings, cat, city, radius, q, minP, maxP, sort, showFavsOnly, favs, showMineOnly, session, hideSold, attrFilters]);
 
   const myCount = useMemo(() =>
     session ? listings.filter((l) => l.user_id === session.user.id).length : 0,
   [listings, session]);
 
-  const activeFilters = (cat !== "all") + (city !== "Цяла България") + (radius > 0) + (!!minP) + (!!maxP) + showFavsOnly;
+  const attrFilterCount = Object.values(attrFilters).filter((v) => v !== "" && v != null).length;
+  const activeFilters = (cat !== "all") + (city !== "Цяла България") + (radius > 0) + (!!minP) + (!!maxP) + showFavsOnly + attrFilterCount;
 
   const goPost = () => {
     if (!session) { setAuthView("signup"); setDetail(null); return; }
@@ -419,7 +450,7 @@ export default function Pazarche() {
         <div style={{ background: "#fff", borderBottom: "1px solid #e6dcc9", position: "sticky", top: isMobile ? 112 : 64, zIndex: 30, overflowX: "auto" }}>
           <div style={{ maxWidth: 1180, margin: "0 auto", padding: "10px 18px", display: "flex", gap: 8 }}>
             {CATEGORIES.map((c) => (
-              <button key={c.id} onClick={() => setCat(c.id)} className="pz-cat"
+              <button key={c.id} onClick={() => { setCat(c.id); setAttrFilters({}); }} className="pz-cat"
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", borderRadius: 999, border: "1.5px solid", borderColor: cat === c.id ? "#16130F" : "#e6dcc9", background: cat === c.id ? "#16130F" : "#fff", color: cat === c.id ? "#F4EBDD" : "#16130F", cursor: "pointer", fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
                 <span>{c.icon}</span> {c.label}
               </button>
@@ -458,7 +489,7 @@ export default function Pazarche() {
         ) : posting ? (
           <PostForm onSubmit={addListing} onCancel={() => setPosting(false)} defaultName={session?.user?.email?.split("@")[0] || ""} defaultEmail={session?.user?.email || ""} userId={session?.user?.id} />
         ) : detail ? (
-          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} onEdit={() => { setEditing(detail); setDetail(null); }} onToggleSold={toggleSold} onContact={contactSeller} onViewSeller={() => { setProfileUser({ id: detail.user_id, name: detail.seller_name }); setDetail(null); }} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
+          <Detail item={detail} onBack={() => setDetail(null)} isFav={favs.includes(detail.id)} onFav={() => toggleFav(detail.id)} onRemove={removeListing} onEdit={() => { setEditing(detail); setDetail(null); }} onToggleSold={toggleSold} onContact={contactSeller} onViewSeller={() => { setProfileUser({ id: detail.user_id, name: detail.seller_name }); setDetail(null); }} rating={sellerRatings[detail.user_id]} isMobile={isMobile} isOwner={session?.user?.id === detail.user_id} />
         ) : (
           <>
             {activeFilters === 0 && !q && (
@@ -515,8 +546,46 @@ export default function Pazarche() {
                   <input type="checkbox" checked={hideSold} onChange={(e) => setHideSold(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#C9762B", cursor: "pointer" }} />
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#5c5345" }}>Скрий продадените</span>
                 </label>
+
+                {cat === "avto" && (
+                  <>
+                    <Field label="Година от">
+                      <input type="number" value={attrFilters.yearMin || ""} onChange={(e) => setAttrFilters((p) => ({ ...p, yearMin: e.target.value }))} placeholder="напр. 2010" style={inp} />
+                    </Field>
+                    <Field label="Година до">
+                      <input type="number" value={attrFilters.yearMax || ""} onChange={(e) => setAttrFilters((p) => ({ ...p, yearMax: e.target.value }))} placeholder="напр. 2020" style={inp} />
+                    </Field>
+                    <Field label="Пробег до (км)">
+                      <input type="number" value={attrFilters.mileageMax || ""} onChange={(e) => setAttrFilters((p) => ({ ...p, mileageMax: e.target.value }))} placeholder="напр. 150000" style={inp} />
+                    </Field>
+                    <Field label="Гориво">
+                      <select value={attrFilters.fuel || ""} onChange={(e) => setAttrFilters((p) => ({ ...p, fuel: e.target.value }))} style={inp}>
+                        <option value="">Всички</option>
+                        {["Бензин", "Дизел", "Газ/Бензин", "Хибрид", "Електрически"].map((o) => <option key={o}>{o}</option>)}
+                      </select>
+                    </Field>
+                  </>
+                )}
+
+                {cat === "imoti" && (
+                  <>
+                    <Field label="Тип имот">
+                      <select value={attrFilters.ptype || ""} onChange={(e) => setAttrFilters((p) => ({ ...p, ptype: e.target.value }))} style={inp}>
+                        <option value="">Всички</option>
+                        {["Едностаен", "Двустаен", "Тристаен", "Четиристаен", "Многостаен", "Къща", "Парцел", "Офис", "Магазин"].map((o) => <option key={o}>{o}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Квадратура от">
+                      <input type="number" value={attrFilters.areaMin || ""} onChange={(e) => setAttrFilters((p) => ({ ...p, areaMin: e.target.value }))} placeholder="напр. 50" style={inp} />
+                    </Field>
+                    <Field label="Квадратура до">
+                      <input type="number" value={attrFilters.areaMax || ""} onChange={(e) => setAttrFilters((p) => ({ ...p, areaMax: e.target.value }))} placeholder="напр. 100" style={inp} />
+                    </Field>
+                  </>
+                )}
+
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button onClick={() => { setCity("Цяла България"); setRadius(0); setMinP(""); setMaxP(""); setCat("all"); setShowFavsOnly(false); setHideSold(false); }}
+                  <button onClick={() => { setCity("Цяла България"); setRadius(0); setMinP(""); setMaxP(""); setCat("all"); setShowFavsOnly(false); setHideSold(false); setAttrFilters({}); }}
                     style={{ padding: "11px 14px", borderRadius: 10, border: "1.5px solid #C9762B", background: "#fff", color: "#C9762B", fontWeight: 700, cursor: "pointer", width: "100%" }}>
                     Изчисти филтрите
                   </button>
@@ -773,7 +842,7 @@ function SellerProfile({ profile, listings, onBack, onOpen, favs, onFav, userId 
               <div key={r.id} style={{ borderBottom: "1px solid #f0e8d8", paddingBottom: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
                   <Stars value={r.rating} size={14} />
-                  <span style={{ fontSize: 12.5, color: "#9c8f7d" }}>преди {Math.max(1, Math.floor((Date.now() - new Date(r.created_at)) / 86400000))} дни</span>
+                  <span style={{ fontSize: 12.5, color: "#9c8f7d" }}>{fmtTime(r.created_at)}</span>
                 </div>
                 {r.comment && <p style={{ margin: 0, fontSize: 14.5, color: "#3a342b", lineHeight: 1.5 }}>{r.comment}</p>}
               </div>
@@ -842,7 +911,7 @@ function Card({ item, fav, onFav, onOpen }) {
 }
 
 /* ---------------- DETAIL ---------------- */
-function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, onContact, onViewSeller, isMobile, isOwner }) {
+function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, onContact, onViewSeller, rating, isMobile, isOwner }) {
   const bg = item.photo || "#C9762B";
   const catObj = CATEGORIES.find((c) => c.id === item.cat);
   const photos = item.photos || [];
@@ -913,9 +982,16 @@ function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, on
             <div style={{ borderTop: "1px solid #eee3d2", paddingTop: 16, marginTop: 4 }}>
               <div style={{ fontSize: 13, color: "#9c8f7d", fontWeight: 700 }}>Продавач</div>
               <button onClick={onViewSeller}
-                style={{ fontSize: 16, fontWeight: 700, marginBottom: 14, background: "none", border: "none", padding: 0, color: "#C9762B", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 3 }}>
+                style={{ fontSize: 16, fontWeight: 700, marginBottom: rating ? 4 : 14, background: "none", border: "none", padding: 0, color: "#C9762B", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 3 }}>
                 {item.seller_name}
               </button>
+              {rating && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+                  <Stars value={rating.avg} size={14} />
+                  <span style={{ fontSize: 13, color: "#5c5345", fontWeight: 700 }}>{rating.avg.toFixed(1)}</span>
+                  <span style={{ fontSize: 13, color: "#9c8f7d" }}>({rating.count})</span>
+                </div>
+              )}
               {!isOwner && (
                 <button onClick={() => onContact(item)} className="pz-btn"
                   style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#E8A33D", color: "#16130F", border: "none", borderRadius: 11, padding: "13px", fontWeight: 800, fontSize: 15, marginBottom: 9, cursor: "pointer" }}>
