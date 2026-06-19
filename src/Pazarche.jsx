@@ -944,8 +944,8 @@ function Detail({ item, onBack, isFav, onFav, onRemove, onEdit, onToggleSold, on
         <div>
           {hasPhotos ? (
             <div>
-              <div style={{ height: isMobile ? 280 : 500, background: "#eee", borderRadius: 18, overflow: "hidden", position: "relative" }}>
-                <img src={photos[active]} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "contain", background: "#16130F", filter: item.sold ? "grayscale(0.7) brightness(0.85)" : "none" }} />
+              <div style={{ height: isMobile ? 300 : 440, background: "#eee", borderRadius: 18, overflow: "hidden", position: "relative" }}>
+                <img src={photos[active]} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover", filter: item.sold ? "grayscale(0.7) brightness(0.85)" : "none" }} />
                 <span style={{ position: "absolute", top: 14, left: 14, background: "rgba(244,235,221,.95)", padding: "5px 12px", borderRadius: 999, fontWeight: 700, fontSize: 13 }}>{catObj?.label}</span>
                 {item.sold && <span style={{ position: "absolute", top: 14, right: 14, background: "#a04030", color: "#fff", padding: "6px 14px", borderRadius: 999, fontWeight: 800, fontSize: 14 }}>ПРОДАДЕНО</span>}
               </div>
