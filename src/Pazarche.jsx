@@ -91,7 +91,7 @@ const CAT_FIELDS = {
   ],
 };
 
-const fmtPrice = (p) => p === 0 ? "По договаряне" : new Intl.NumberFormat("bg-BG").format(p) + " лв.";
+const fmtPrice = (p) => p === 0 ? "По договаряне" : new Intl.NumberFormat("bg-BG").format(p) + " €";
 const fmtTime = (iso) => {
   const t = new Date(iso).getTime();
   const m = Math.floor((Date.now() - t) / 60000);
@@ -1165,7 +1165,7 @@ function PostForm({ onSubmit, onCancel, defaultName, defaultEmail, userId, mode,
         </div>
 
         <div className="pz-row2">
-          <Field label="Цена (лв.) — празно = по договаряне">
+          <Field label="Цена (€) — празно = по договаряне">
             <input type="number" value={f.price} onChange={(e) => set("price", e.target.value)} placeholder="По договаряне" style={inp} />
           </Field>
           <Field label="Град">
